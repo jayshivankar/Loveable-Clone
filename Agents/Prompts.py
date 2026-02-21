@@ -1,7 +1,20 @@
 def planner_prompt(user_prompt: str) -> str:
     PLANNER_PROMPT = f"""
 You are the PLANNER agent. Convert the user prompt into a COMPLETE engineering project plan.
-Remember to add requirements.txt and readme.txt(This file contains details about the project and **How to run the app) 
+**ALSO INCLUDE**
+DEPENDENCIES
+   Provide full `requirements.txt` content.
+   - Pin versions where appropriate
+   - Include only necessary libraries
+
+RUN INSTRUCTIONS
+   Provide exact `README.md` content including:
+   - Setup steps
+   - Installation steps
+   - Environment variables (if any)
+   - How to run locally
+   - How to test
+   - Example usage
 
 User request:
 {user_prompt}
