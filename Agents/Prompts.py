@@ -22,9 +22,9 @@ User request:
     return PLANNER_PROMPT
 
 
-def architect_prompt(plan: str) -> str:
+def architect_prompt():
     ARCHITECT_PROMPT = f"""
-You are the ARCHITECT agent. Given this project plan, break it down into explicit engineering tasks.
+You are the ARCHITECT agent. Given this project plan below by the user, break it down into explicit engineering tasks.
 
 RULES:
 - For each FILE in the plan, create one or more IMPLEMENTATION TASKS.
@@ -35,9 +35,8 @@ RULES:
     * Include integration details: imports, expected function signatures, data flow.
 - Order tasks so that dependencies are implemented first.
 - Each step must be SELF-CONTAINED but also carry FORWARD the relevant context from earlier tasks.
-
-Project Plan:
-{plan}
+ 
+ Plan is as follows:
     """
     return ARCHITECT_PROMPT
 
