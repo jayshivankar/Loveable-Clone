@@ -1,6 +1,7 @@
 from langchain_core.prompts.string import PromptTemplateFormat
 from langchain_openai import ChatOpenAI
 from langgraph.graph import START,StateGraph,END
+from langchain_core.prompts import PromptTemplate
 from langchain_core.messages import SystemMessage,HumanMessage,AIMessage
 from dotenv import load_dotenv
 from Agents.Prompts import *
@@ -31,24 +32,20 @@ def planner_agent(states:dict) -> dict:
 
 
 def architect_agent(states:dict):
-
     prompts = architect_prompt()
-    architect_prompts = prompts.format()
-
-    human_prompt = f"""
-    These below are all the attributes of the Plan
-    name = {states['name']}
-    description = {states['description']}
-    techstack = {states['techstack']}
-    features = {states['features']}
-    files = {states['files']}
-    """
-
-    answer = llm.with_structured_output(TaskPlan).invoke(
-        SystemMessage(content=architect_prompts),
-        HumanMessage(content = human_prompt)
-    )
+    sys_msg = SystemMessage(prompts.format())
+    prompt_human_msg = PromptTemplate.from_template("""
+         1. name of project = {name},
+         2. description of project= {description},
+         3. techstack used in project = {techstack},
+         4. features used in project = {features},
+         5. files used in project = {files}
+    """ )
+    human_msg = prompt_human_msg.format(name=states['name'],description=states['description'],techstack=states['techstack'],features=states['features'],files=states['files'])
+    answer = llm.with_structured_output(TaskPlan).invoke([sys_msg,HumanMessage(human_msg)])
     return {'implementation_steps':answer.implementation_steps}
+
+
 
 
 

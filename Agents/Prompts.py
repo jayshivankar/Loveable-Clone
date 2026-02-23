@@ -36,8 +36,8 @@ RULES:
 - Order tasks so that dependencies are implemented first.
 - Each step must be SELF-CONTAINED but also carry FORWARD the relevant context from earlier tasks.
  
- Plan is as follows:
-    """
+"""
+
     return ARCHITECT_PROMPT
 
 
