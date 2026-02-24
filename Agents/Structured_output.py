@@ -22,7 +22,6 @@ class TaskPlan(BaseModel):
     implementation_steps: list[ImplementationTask] = Field(description="A list of steps to be taken to implement the task")
 
 
-
 class CoderState(BaseModel):
     task_plan: TaskPlan = Field(description="The plan for the task to be implemented")
     current_step_idx: int = Field(0, description="The index of the current step in the implementation steps")

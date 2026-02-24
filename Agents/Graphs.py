@@ -6,6 +6,8 @@ from langchain_core.messages import SystemMessage,HumanMessage,AIMessage
 from dotenv import load_dotenv
 from Agents.Prompts import *
 from Agents.Structured_output import *
+from Agents.tools import *
+from langgraph.prebuilt import ToolNode, tools_condition
 
 
 load_dotenv()
@@ -32,26 +34,13 @@ def planner_agent(states:dict) -> dict:
 
 
 def architect_agent(states:dict):
-    prompts = architect_prompt()
+    prompt = architect_prompt()
 
     doc_eval_prompt = ChatPromptTemplate.from_messages(
         [
             (
                 "system",
-                """
-                You are the ARCHITECT agent. Given this project plan below by the user, break it down into explicit engineering tasks.
-
-                RULES:
-                - For each FILE in the plan, create one or more IMPLEMENTATION TASKS.
-                - In each task description:
-                    * Specify exactly what to implement.
-                    * Name the variables, functions, classes, and components to be defined.
-                    * Mention how this task depends on or will be used by previous tasks.
-                    * Include integration details: imports, expected function signatures, data flow.
-                - Order tasks so that dependencies are implemented first.
-                - Each step must be SELF-CONTAINED but also carry FORWARD the relevant context from earlier tasks.
-
-                """
+                prompt
                 ,
             ),
             ("human",
@@ -78,17 +67,59 @@ def architect_agent(states:dict):
     return {'implementation_steps':answer.implementation_steps}
 
 
+tools = [write_file, read_file, list_files, get_current_directory,run_cmd]
 
+def coder_agent(states:dict):
+    prompt = coder_system_prompt()
+    implementation_steps = states['implementation_steps']
+    learner_steps = states['learner_steps']
+
+    coder_prompt = ChatPromptTemplate.from_messages(
+        [
+            (
+                "system",
+                prompt
+                ,
+            ),
+            ("human",
+             f"""
+             This list contains filepath of file to be modified and tasks to be implemented in the particular file.
+             It has in total {learner_steps} files to be modified .GO through each of them one by one and write the 
+             code per the tasks for the particular file. Stop the execution whenever all the steps are done.
+             
+             Steps :
+             {implementation_steps}
+              
+             """
+             ),
+        ]
+    )
+
+    llm_with_tools = llm.bind_tools(tools)
+
+    coder_chain = coder_prompt | llm_with_tools
+
+    output = coder_chain.invoke({'learner_steps':learner_steps,'implementation_steps':implementation_steps})
+    if output:
+        return {'all done'}
+
+
+
+tool_node = ToolNode(tools)
 
 
 graph = StateGraph(dict)
 graph.add_node('planner_agent',planner_agent)
 graph.add_node('architect_agent',architect_agent)
+graph.add_node('coder_agent',coder_agent)
+graph.add_node("tools", tool_node)
 
 graph.add_edge(START,'planner_agent')
 graph.add_edge('planner_agent','architect_agent')
+graph.add_conditional_edges('architect_agent',tools_condition)
+graph.add_edge('tools','architect_agent')
 graph.add_edge('architect_agent',END)
 
 workflow = graph.compile()
-result = workflow.invoke({'user_input': 'Build me a good multimodalRAG system'})
+result = workflow.invoke({'user_input': 'build a basic web application'})
 print(result)
