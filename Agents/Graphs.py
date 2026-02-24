@@ -72,7 +72,7 @@ tools = [write_file, read_file, list_files, get_current_directory,run_cmd]
 def coder_agent(states:dict):
     prompt = coder_system_prompt()
     implementation_steps = states['implementation_steps']
-    learner_steps = states['learner_steps']
+    learner_steps = len(implementation_steps)
 
     coder_prompt = ChatPromptTemplate.from_messages(
         [
@@ -82,7 +82,7 @@ def coder_agent(states:dict):
                 ,
             ),
             ("human",
-             f"""
+             """
              This list contains filepath of file to be modified and tasks to be implemented in the particular file.
              It has in total {learner_steps} files to be modified .GO through each of them one by one and write the 
              code per the tasks for the particular file. Stop the execution whenever all the steps are done.
@@ -116,9 +116,11 @@ graph.add_node("tools", tool_node)
 
 graph.add_edge(START,'planner_agent')
 graph.add_edge('planner_agent','architect_agent')
-graph.add_conditional_edges('architect_agent',tools_condition)
-graph.add_edge('tools','architect_agent')
-graph.add_edge('architect_agent',END)
+graph.add_edge('architect_agent','coder_agent')
+graph.add_conditional_edges('coder_agent',tools_condition)
+graph.add_edge('tools','coder_agent')
+graph.add_edge('coder_agent',END)
+
 
 workflow = graph.compile()
 result = workflow.invoke({'user_input': 'build a basic web application'})
