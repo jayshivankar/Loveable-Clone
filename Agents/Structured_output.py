@@ -1,9 +1,12 @@
 from typing import Optional
-from pydantic import BaseModel,Field,ConfigDict
+
+from pydantic import BaseModel, Field, ConfigDict
+
 
 class File(BaseModel):
-    filepath: str = Field(description = "Path to the particular file to be created or modified")
+    path: str = Field(description="The path to the file to be created or modified")
     purpose: str = Field(description="The purpose of the file, e.g. 'main application logic', 'data processing module', etc.")
+
 
 class Plan(BaseModel):
     name: str = Field(description="The name of app to be built")
@@ -20,6 +23,7 @@ class ImplementationTask(BaseModel):
 
 class TaskPlan(BaseModel):
     implementation_steps: list[ImplementationTask] = Field(description="A list of steps to be taken to implement the task")
+    model_config = ConfigDict(extra="allow")
 
 
 class CoderState(BaseModel):

@@ -1,20 +1,6 @@
 def planner_prompt(user_prompt: str) -> str:
     PLANNER_PROMPT = f"""
 You are the PLANNER agent. Convert the user prompt into a COMPLETE engineering project plan.
-**ALSO INCLUDE**
-DEPENDENCIES
-   Provide full `requirements.txt` content.
-   - Pin versions where appropriate
-   - Include only necessary libraries
-
-RUN INSTRUCTIONS
-   Provide exact `README.md` content including:
-   - Setup steps
-   - Installation steps
-   - Environment variables (if any)
-   - How to run locally
-   - How to test
-   - Example usage
 
 User request:
 {user_prompt}
@@ -22,9 +8,9 @@ User request:
     return PLANNER_PROMPT
 
 
-def architect_prompt():
+def architect_prompt(plan: str) -> str:
     ARCHITECT_PROMPT = f"""
-You are the ARCHITECT agent. Given this project plan below by the user, break it down into explicit engineering tasks.
+You are the ARCHITECT agent. Given this project plan, break it down into explicit engineering tasks.
 
 RULES:
 - For each FILE in the plan, create one or more IMPLEMENTATION TASKS.
@@ -35,9 +21,10 @@ RULES:
     * Include integration details: imports, expected function signatures, data flow.
 - Order tasks so that dependencies are implemented first.
 - Each step must be SELF-CONTAINED but also carry FORWARD the relevant context from earlier tasks.
- 
-"""
 
+Project Plan:
+{plan}
+    """
     return ARCHITECT_PROMPT
 
 
