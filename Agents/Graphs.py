@@ -23,8 +23,8 @@ logger = logging.getLogger("graph-log")
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 
 
-class GraphState(dict):
-    """
+
+"""
     Keys used across the graph:
       user_prompt     : str
       plan            : Plan
@@ -32,13 +32,13 @@ class GraphState(dict):
       coder_state     : CoderState
       status          : str  ("IN_PROGRESS" | "DONE")
       error           : str | None
-    """
+"""
 
 
 
 # Node: Planner
 
-def planner_agent(state: GraphState) -> GraphState:
+def planner_agent(state: dict) -> dict:
     """
     Converts the user prompt into a structured Plan.
     Determines whether the user wants to BUILD or MODIFY a project.
@@ -70,7 +70,7 @@ def planner_agent(state: GraphState) -> GraphState:
 # Node: Architect
 
 
-def architect_agent(state: GraphState) -> GraphState:
+def architect_agent(state: dict) -> dict:
     """
     Reads the Plan and produces an ordered TaskPlan.
     Each ImplementationTask maps 1-to-1 with a file.
@@ -97,7 +97,7 @@ def architect_agent(state: GraphState) -> GraphState:
 
 # Node: Coder
 
-def coder_agent(state: GraphState) -> GraphState:
+def coder_agent(state: dict) -> dict:
     """
     Executes one implementation step at a time.
     Loops until all steps are complete.
@@ -152,7 +152,7 @@ def coder_agent(state: GraphState) -> GraphState:
     agent = create_agent(
         model=llm,
         tools=coder_tools,
-        prompt=coder_system_prompt(),
+        system_prompt=coder_system_prompt(),
     )
 
     agent.invoke({
@@ -170,7 +170,7 @@ def coder_agent(state: GraphState) -> GraphState:
 # Conditional edge: loop or finish
 
 
-def should_continue_coding(state: GraphState) -> str:
+def should_continue_coding(state: dict) -> str:
     if state.get("status") == "DONE":
         return "END"
     return "coder"
@@ -180,7 +180,7 @@ def should_continue_coding(state: GraphState) -> str:
 # Graph assembly
 
 
-graph = StateGraph(GraphState)
+graph = StateGraph(dict)
 
 graph.add_node("planner", planner_agent)
 graph.add_node("architect", architect_agent)
