@@ -62,7 +62,7 @@ def planner_agent(state: dict) -> dict:
     logger.info(f"[PLANNER] Stack   : {plan.techstack}")
     logger.info(f"[PLANNER] Files   : {len(plan.files)}")
     for f in plan.files:
-        logger.info(f"            → {f.path}  ({f.purpose})")
+        logger.info(f"          → {f.path}  ({f.purpose})")
 
     return {"plan": plan}
 
@@ -102,7 +102,7 @@ def coder_agent(state: dict) -> dict:
     Executes one implementation step at a time.
     Loops until all steps are complete.
     """
-    #  Initialise coder state on first call
+    #  Initialize coder state on first call
     coder_state: CoderState = state.get("coder_state")
     if coder_state is None:
         coder_state = CoderState(
@@ -176,7 +176,6 @@ def should_continue_coding(state: dict) -> str:
     return "coder"
 
 
-
 # Graph assembly
 
 
@@ -202,7 +201,6 @@ app = graph.compile()
 
 
 # Entry point
-
 
 if __name__ == "__main__":
     from Agents.tools import init_project_root
