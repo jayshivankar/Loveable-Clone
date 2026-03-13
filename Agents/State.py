@@ -27,3 +27,5 @@ class GraphState(TypedDict, total=False):
 
     # Reviewer
     review_result: ReviewResult    # score, issues, passed flag
+
+    status: str

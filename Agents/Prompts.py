@@ -10,25 +10,21 @@ Convert the user's request into a complete, structured engineering plan.
 RULES
 ═══════════════════════════════════════════════════
 
-1. ACTION
-   - action = "BUILD"  → user wants a brand-new project.
-   - action = "MODIFY" → user wants to change or extend an existing project.
-
-2. FILES
+1. FILES
    - List EVERY file the project needs (source, config, assets).
    - ALWAYS include README.md and requirements.txt.
    - Use relative paths only, e.g. "src/app.py", "index.html".
    - Give each file a specific, non-vague purpose.
 
-3. FEATURES
+2. FEATURES
    - List concrete, user-visible features.
    - Bad:  "data management"
    - Good: "Add a new todo item via an input field"
 
-4. TECH STACK
+3. TECH STACK
    - Be specific: "HTML5, CSS3, Vanilla JavaScript" not just "web".
 
-5. NAME  →  kebab-case, e.g. "todo-app", "expense-tracker".
+4. NAME  →  kebab-case, e.g. "todo-app", "expense-tracker".
 
 ═══════════════════════════════════════════════════
 USER REQUEST
@@ -118,7 +114,7 @@ SEVERITY GUIDE:
   medium = feature broken or significant UX issue
   low    = style, minor improvement, non-critical
 
-Set passed = True only if there are NO high-severity issues.
+** Set passed = True only if there are NO high-severity issues. **
 Give an honest quality_score from 1 (broken) to 10 (production-ready).
 
 ═══════════════════════════════════════════════════

@@ -1,214 +1,229 @@
+"""
+Flow: planner → architect → coder → reviewer → file_collector → downloader → END
+"""
+
+import zipfile
+import pathlib
 from dotenv import load_dotenv
-from langgraph.constants import END
-from langgraph.graph import StateGraph
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, SystemMessage
-import logging
-
-from Agents.Prompts import planner_prompt, architect_prompt, coder_system_prompt
-from Agents.Structured_output import Plan, TaskPlan, CoderState, ProjectAction
-from Agents.tools import write_file, read_file, get_current_directory, list_files
 from langchain.agents import create_agent
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage
 
+from Agents.Prompts import (
+    planner_prompt,
+    architect_prompt,
+    coder_system_prompt,
+    reviewer_prompt,
+)
+from Agents.Structured_output import Plan, TaskPlan, CoderState, ReviewResult
+from Agents.tools import write_file, read_file, get_current_directory, list_files, PROJECT_ROOT
+from Agents.State import GraphState
 
 load_dotenv()
-
-# initialize logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
-)
-logger = logging.getLogger("graph-log")
 
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 
 
-
-"""
-    Keys used across the graph:
-      user_prompt     : str
-      plan            : Plan
-      task_plan       : TaskPlan
-      coder_state     : CoderState
-      status          : str  ("IN_PROGRESS" | "DONE")
-      error           : str | None
-"""
+# Helpers
 
 
+def _read_all_project_files() -> dict[str, str]:
+    """Returns {relative_path: content} for every file under PROJECT_ROOT."""
+    root = pathlib.Path(PROJECT_ROOT)
+    files: dict[str, str] = {}
+    if not root.exists():
+        return files
+    for p in root.rglob("*"):
+        if p.is_file():
+            rel = str(p.relative_to(root))
+            try:
+                files[rel] = p.read_text(encoding="utf-8")
+            except Exception:
+                files[rel] = "<binary — skipped>"
+    return files
 
-# Node: Planner
 
-def planner_agent(state: dict) -> dict:
-    """
-    Converts the user prompt into a structured Plan.
-    Determines whether the user wants to BUILD or MODIFY a project.
-    """
-    user_prompt: str = state["user_prompt"]
 
+# Node 1 — Planner
+
+
+def planner_agent(state: GraphState) -> GraphState:
     print("\n[PLANNER] Analysing prompt...")
+    plan: Plan = llm.with_structured_output(Plan).invoke(
+        planner_prompt(state["user_prompt"])
+    )
+    if plan is None:
+        raise ValueError("[PLANNER] LLM returned None.")
 
-    try:
-        plan: Plan = llm.with_structured_output(Plan).invoke(
-            planner_prompt(user_prompt)
-        )
-    except Exception as e:
-        raise RuntimeError(f"[PLANNER] LLM call failed: {e}") from e
-
-
-
-    #  Logging
-    logger.info(f"[PLANNER] Action  : {plan.action}")
-    logger.info(f"[PLANNER] App     : {plan.name}")
-    logger.info(f"[PLANNER] Stack   : {plan.techstack}")
-    logger.info(f"[PLANNER] Files   : {len(plan.files)}")
+    print(f"[PLANNER] App: {plan.name} | Stack: {plan.techstack}")
     for f in plan.files:
-        logger.info(f"          → {f.path}  ({f.purpose})")
-
+        print(f"  → {f.path}")
     return {"plan": plan}
 
 
-# Node: Architect
+# Node 2 — Architect
 
 
-def architect_agent(state: dict) -> dict:
-    """
-    Reads the Plan and produces an ordered TaskPlan.
-    Each ImplementationTask maps 1-to-1 with a file.
-    """
+def architect_agent(state: GraphState) -> GraphState:
     plan: Plan = state["plan"]
+    print(f"\n[ARCHITECT] Creating tasks for {len(plan.files)} files...")
 
-    print(f"\n[ARCHITECT] Breaking plan into tasks for {len(plan.files)} files...")
+    task_plan: TaskPlan = llm.with_structured_output(TaskPlan).invoke(
+        architect_prompt(plan=plan.model_dump_json(indent=2))
+    )
+    if task_plan is None:
+        raise ValueError("[ARCHITECT] LLM returned None.")
 
-    try:
-        task_plan: TaskPlan = llm.with_structured_output(TaskPlan).invoke(
-            architect_prompt(plan=plan.model_dump_json(indent=2))
-        )
-    except Exception as e:
-        raise RuntimeError(f"[ARCHITECT] LLM call failed: {e}") from e
-
-
-    #  Logging
-    logger.info(f"[ARCHITECT] {len(task_plan.implementation_steps)} tasks generated:")
-
+    print(f"[ARCHITECT] {len(task_plan.implementation_steps)} tasks:")
 
     return {"task_plan": task_plan}
 
 
 
-# Node: Coder
+# Node 3 — Coder
 
-def coder_agent(state: dict) -> dict:
-    """
-    Executes one implementation step at a time.
-    Loops until all steps are complete.
-    """
-    #  Initialize coder state on first call
-    coder_state: CoderState = state.get("coder_state")
-    if coder_state is None:
-        coder_state = CoderState(
-            task_plan=state["task_plan"],
-            current_step_idx=0,
-        )
 
+def coder_agent(state: GraphState) -> GraphState:
+    coder_state: CoderState = state.get("coder_state") or CoderState(
+        task_plan=state["task_plan"], current_step_idx=0
+    )
     steps = coder_state.task_plan.implementation_steps
 
-    # Check if all tasks are done
     if coder_state.current_step_idx >= len(steps):
-        logger.info("\n[CODER] All tasks complete. Status → DONE")
+        print("\n[CODER] All tasks done.")
         return {"coder_state": coder_state, "status": "DONE"}
 
-    current_task = steps[coder_state.current_step_idx]
+    task = steps[coder_state.current_step_idx]
+    print(f"\n[CODER] {coder_state.current_step_idx + 1}/{len(steps)}: {task.filepath}")
 
-    print(
-        f"\n[CODER] Task {coder_state.current_step_idx + 1}/{len(steps)}: "
-        f"{current_task.filepath}"
+    existing = read_file.run(task.filepath) or ""
+    user_msg = (
+        f"File: {task.filepath}\n\n"
+        f"Task:\n{task.task_description}\n\n"
+        + (f"Dependencies: {task.depends_on}\n\n" if task.depends_on else "")
+        + (f"Existing content:\n```\n{existing}\n```\n\n" if existing else "New file — create from scratch.\n\n")
+        + "Write the COMPLETE file using write_file(path, content)."
     )
-
-    # Read existing file content
-    existing_content = read_file.run(current_task.filepath) or ""
-
-    # user message for task
-    user_message = (
-        f"File to write: {current_task.filepath}\n\n"
-        f"Instructions:\n{current_task.task_description}\n\n"
-        + (
-            f"Dependencies already implemented:\n"
-            + "\n".join(f"  - {d}" for d in current_task.depends_on)
-            + "\n\n"
-            if current_task.depends_on else ""
-        )
-        + (
-            f"Existing file content (update if needed):\n"
-            f"```\n{existing_content}\n```\n\n"
-            if existing_content else
-            "This file does not exist yet — create it from scratch.\n\n"
-        )
-        + "Write the COMPLETE file content using write_file(path, content)."
-    )
-
-    # Run the coder agent
-    coder_tools = [read_file, write_file, list_files, get_current_directory]
 
     agent = create_agent(
         model=llm,
-        tools=coder_tools,
+        tools=[read_file, write_file, list_files, get_current_directory],
         system_prompt=coder_system_prompt(),
     )
+    agent.invoke({"messages": [HumanMessage(content=user_msg)]})
 
-    agent.invoke({
-        "messages": [HumanMessage(content=user_message)]
-    })
-
-    # Advance step index
     coder_state.current_step_idx += 1
-    logger.info(f"[CODER] ✓ Finished {current_task.filepath}")
-
+    print(f"[CODER] : {task.filepath} done")
     return {"coder_state": coder_state, "status": "IN_PROGRESS"}
 
 
 
-# Conditional edge: loop or finish
+# Node 4 — Reviewer
+# Reviews all generated files, flags issues, applies fixes via tools
 
 
-def should_continue_coding(state: dict) -> str:
-    if state.get("status") == "DONE":
-        return "END"
-    return "coder"
+def reviewer_agent(state: GraphState) -> GraphState:
+    print("\n[REVIEWER] Reviewing all generated files...")
 
+    all_files = _read_all_project_files()
+    if not all_files:
+        print("[REVIEWER] No files found to review.")
+        return {"review_result": None}
 
-# Graph assembly
-
-
-graph = StateGraph(dict)
-
-graph.add_node("planner", planner_agent)
-graph.add_node("architect", architect_agent)
-graph.add_node("coder", coder_agent)
-
-graph.add_edge("planner", "architect")
-graph.add_edge("architect", "coder")
-
-graph.add_conditional_edges(
-    "coder",
-    should_continue_coding,
-    {"END": END, "coder": "coder"},
-)
-
-graph.set_entry_point("planner")
-
-app = graph.compile()
-
-
-
-# Entry point
-
-if __name__ == "__main__":
-    from Agents.tools import init_project_root
-
-    init_project_root()
-
-    result = app.invoke(
-        {"user_prompt": "Build a colourful modern todo app in HTML CSS and JS"},
-        {"recursion_limit": 150},
+    # Format all files for the LLM
+    files_block = "\n\n".join(
+        f"### {path}\n```\n{content}\n```"
+        for path, content in sorted(all_files.items())
     )
+
+    # Step 1: structured review — get a report of issues
+    review_result: ReviewResult = llm.with_structured_output(ReviewResult).invoke(
+        reviewer_prompt(files_block=files_block)
+    )
+
+    if review_result is None:
+        raise ValueError("[REVIEWER] LLM returned None.")
+
+    print(f"[REVIEWER] Score   : {review_result.quality_score}/10")
+    print(f"[REVIEWER] Passed  : {review_result.passed}")
+    print(f"[REVIEWER] Issues  : {len(review_result.issues)}")
+    for issue in review_result.issues:
+        print(f"  [{issue.severity.upper()}] {issue.filepath}: {issue.description}")
+
+    # Step 2: if issues exist, let the reviewer fix them using file tools
+    if not review_result.passed and review_result.issues:
+        print("\n[REVIEWER] Applying fixes...")
+
+        fix_instructions = "\n".join(
+            f"- {issue.filepath} ({issue.severity}): {issue.description}. Fix: {issue.suggested_fix}"
+            for issue in review_result.issues
+        )
+
+        fix_msg = (
+            f"You are reviewing and fixing a generated project.\n\n"
+            f"Issues found:\n{fix_instructions}\n\n"
+            f"For each issue:\n"
+            f"1. Read the file with read_file()\n"
+            f"2. Fix the issue\n"
+            f"3. Write the corrected COMPLETE file with write_file()\n\n"
+            f"Do not change files that have no issues."
+        )
+
+        fix_agent = create_agent(
+            model=llm,
+            tools=[read_file, write_file, list_files, get_current_directory],
+            system_prompt="You are a senior code reviewer. Fix only the reported issues. Write complete files.",
+        )
+        fix_agent.invoke({"messages": [HumanMessage(content=fix_msg)]})
+        print("[REVIEWER] : Fixes applied.")
+
+    return {"review_result": review_result}
+
+
+
+# Node 5 — File Collector
+# Reads all files from disk
+
+
+def file_collector(state: GraphState) -> GraphState:
+    print("\n[FILE COLLECTOR] Collecting final project files...")
+
+    generated_files = _read_all_project_files()
+    project_structure = sorted(generated_files.keys())
+
+    print(f"[FILE COLLECTOR] {len(generated_files)} files collected:")
+    for path in project_structure:
+        print(f"  {path}  ({len(generated_files[path])} chars)")
+
+
+    return {
+        "generated_files": generated_files,
+        "project_structure": project_structure,
+        "status": "READY",
+    }
+
+
+# Node 6 — Downloader
+# Zips the project folder → zip_path in state
+
+def downloader(state: GraphState) -> GraphState:
+    print("\n[DOWNLOADER] Creating zip...")
+
+    root = pathlib.Path(PROJECT_ROOT)
+    plan: Plan = state.get("plan")
+    app_name = plan.name if plan else "project"
+    zip_path = root.parent / f"{app_name}.zip"
+
+    if not root.exists():
+        raise FileNotFoundError(f"[DOWNLOADER] Project root missing: {root}")
+
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for file_path in root.rglob("*"):
+            if file_path.is_file():
+                zf.write(file_path, file_path.relative_to(root.parent))
+
+    size_kb = zip_path.stat().st_size / 1024
+    print(f"[DOWNLOADER] : {zip_path.name}  ({size_kb:.1f} KB)")
+    return {"zip_path": str(zip_path), "status": "DONE"}
+
 
