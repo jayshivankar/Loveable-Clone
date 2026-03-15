@@ -16,8 +16,8 @@ from Agents.Prompts import (
     reviewer_prompt,
 )
 from Agents.Structured_output import Plan, TaskPlan, CoderState, ReviewResult
-from Agents.tools import write_file, read_file, get_current_directory, list_files, PROJECT_ROOT
 from Agents.State import GraphState
+from Agents.tools import write_file, read_file, get_current_directory, list_files, PROJECT_ROOT, set_retriever, rag_query
 
 load_dotenv()
 
@@ -107,7 +107,7 @@ def coder_agent(state: GraphState) -> GraphState:
 
     agent = create_agent(
         model=llm,
-        tools=[read_file, write_file, list_files, get_current_directory],
+        tools=[read_file, write_file, list_files, get_current_directory,rag_query],
         system_prompt=coder_system_prompt(),
     )
     agent.invoke({"messages": [HumanMessage(content=user_msg)]})

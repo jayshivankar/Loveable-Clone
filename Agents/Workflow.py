@@ -3,8 +3,14 @@ from langgraph.constants import END
 from langgraph.graph import StateGraph
 from Agents.Graphs import *
 from Agents.Structured_output import *
+from Agents.tools import write_file, read_file, get_current_directory, list_files, PROJECT_ROOT, set_retriever, rag_query
+from Agents.RAG.rag import build_retriever
 
-
+# rag
+try:
+    set_retriever(build_retriever())
+except Exception as e:
+    print(f"[RAG] Skipping RAG init: {e}")
 
 # workflow
 
