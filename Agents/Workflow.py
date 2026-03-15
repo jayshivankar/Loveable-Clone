@@ -6,11 +6,7 @@ from Agents.Structured_output import *
 from Agents.tools import write_file, read_file, get_current_directory, list_files, PROJECT_ROOT, set_retriever, rag_query
 from Agents.RAG.rag import build_retriever
 
-# rag
-try:
-    set_retriever(build_retriever())
-except Exception as e:
-    print(f"[RAG] Skipping RAG init: {e}")
+
 
 # workflow
 
@@ -51,8 +47,14 @@ if __name__ == "__main__":
     from Agents.tools import init_project_root
     init_project_root()
 
+    # rag
+    try:
+        set_retriever(build_retriever())
+    except Exception as e:
+        print(f"[RAG] Skipping RAG init: {e}")
+
     result = app.invoke(
-        {"user_prompt": "Build a colourful modern todo app in HTML CSS and JS"},
+        {"user_prompt": "Build a simple web app "},
         {"recursion_limit": 200},
     )
 

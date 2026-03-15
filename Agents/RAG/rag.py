@@ -8,8 +8,8 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import Chroma
 
-DATA_DIR   = pathlib.Path("data")
-VECTOR_DIR = pathlib.Path("vectorstore")
+DATA_DIR   = pathlib.Path("RAG/Data")
+VECTOR_DIR = pathlib.Path("RAG/vectorstore")
 
 SPLITTER = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=100)
 

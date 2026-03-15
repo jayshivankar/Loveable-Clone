@@ -93,7 +93,15 @@ RULES
 
 6. BEST PRACTICES — before writing, call rag_query() with a short description
    of what you are building (e.g. 'Python Flask route handlers', 'JS DOM
-   manipulation'). Apply any relevant guidelines from the results.
+   manipulation'). Apply any relevant guidelines from the results 
+   * Write only to the particular filepath that is given by the Architect 
+   * Do not create multiple files with the same file name or the filepath as specified by the architect node.
+    
+7. rag_query 
+   - Good:  rag_query("Flask REST API route handlers")
+   - Good:  rag_query("React functional component with hooks")
+   - Bad:   querying multiple times or for files other than your target.
+   - Read the results and mentally note the relevant guidelines. 
 """
 
 
