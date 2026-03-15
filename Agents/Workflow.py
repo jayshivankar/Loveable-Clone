@@ -57,3 +57,5 @@ if __name__ == "__main__":
     review: ReviewResult = result.get("review_result")
     if review:
         print(f"REVIEW : {review.quality_score}/10 — passed={review.passed}")
+
+### add a RAG tool;

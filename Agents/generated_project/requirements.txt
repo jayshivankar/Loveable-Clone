@@ -1,8 +1,0 @@
-# Project Dependencies
-
-# List of external libraries and frameworks required for the project
-
-flask==2.0.1
-requests==2.25.1
-numpy==1.21.0
-pandas==1.3.0
