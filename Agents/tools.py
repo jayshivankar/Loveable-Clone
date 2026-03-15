@@ -57,6 +57,28 @@ def run_cmd(cmd: str, cwd: str = None, timeout: int = 30) -> Tuple[int, str, str
     return res.returncode, res.stdout, res.stderr
 
 
+_retriever = None  # module-level singleton
+
+
+def set_retriever(retriever):
+    """Call this once at app startup after build_retriever() returns."""
+    global _retriever
+    _retriever = retriever
+
+
+@tool
+def rag_query(query: str) -> str:
+    """
+    Query the best-practices knowledge base (Clean Code, Pragmatic Programmer,
+    , Good research code handbook).
+    Use this before writing any file to retrieve relevant coding guidelines.
+    """
+    if _retriever is None:
+        return "RAG not initialised — skipping best-practices lookup."
+    docs = _retriever.invoke(query)
+    return "\n\n---\n\n".join(d.page_content for d in docs)
+
+
 def init_project_root():
     PROJECT_ROOT.mkdir(parents=True, exist_ok=True)
     return str(PROJECT_ROOT)

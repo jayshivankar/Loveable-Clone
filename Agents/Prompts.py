@@ -90,6 +90,10 @@ RULES
 4. INTEGRATION — verify imported symbols exist in the files you're importing from.
 
 5. ONE write_file() CALL — write the complete file in a single call.
+
+6. BEST PRACTICES — before writing, call rag_query() with a short description
+   of what you are building (e.g. 'Python Flask route handlers', 'JS DOM
+   manipulation'). Apply any relevant guidelines from the results.
 """
 
 
