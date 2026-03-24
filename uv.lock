@@ -1236,9 +1236,9 @@ dependencies = [
     { name = "langsmith", extra = ["claude-agent-sdk"] },
     { name = "openai" },
     { name = "pathlib" },
-    { name = "prompts" },
     { name = "psycopg2-binary" },
     { name = "pypdf" },
+    { name = "python-dotenv" },
     { name = "sqlalchemy" },
     { name = "uvicorn" },
 ]
@@ -1255,9 +1255,9 @@ requires-dist = [
     { name = "langsmith", extras = ["claude-agent-sdk"], specifier = ">=0.7.5" },
     { name = "openai", specifier = ">=2.21.0" },
     { name = "pathlib", specifier = ">=1.0.1" },
-    { name = "prompts", specifier = ">=0.0.1" },
     { name = "psycopg2-binary", specifier = ">=2.9.11" },
     { name = "pypdf", specifier = ">=6.8.0" },
+    { name = "python-dotenv", specifier = ">=1.1.0" },
     { name = "sqlalchemy", specifier = ">=2.0.43" },
     { name = "uvicorn", specifier = ">=0.35.0" },
 ]
@@ -1840,14 +1840,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/ac/aa/9b065a76b9af472437a0059f77e8f962fe350438b927cb80184c32f075eb/pathlib-1.0.1.tar.gz", hash = "sha256:6940718dfc3eff4258203ad5021090933e5c04707d5ca8cc9e73c94a7894ea9f", size = 49298, upload-time = "2014-09-03T15:41:57.18Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/78/f9/690a8600b93c332de3ab4a344a4ac34f00c8f104917061f779db6a918ed6/pathlib-1.0.1-py3-none-any.whl", hash = "sha256:f35f95ab8b0f59e6d354090350b44a80a80635d22efdedfa84c7ad1cf0a74147", size = 14363, upload-time = "2022-05-04T13:37:20.585Z" },
-]
-
-[[package]]
-name = "prompts"
-version = "0.0.1"
-source = { registry = "https://pypi.org/simple" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/d1/58/2ff14f9245621d2f8b411525c0fc8e557224eaf2723029d5b852da376216/prompts-0.0.1-py3-none-any.whl", hash = "sha256:7cc240be453c512439c00b2145cd1f3aa3796a031661ed4a52f9ab5a060ffb19", size = 1227, upload-time = "2021-05-10T12:08:34.381Z" },
 ]
 
 [[package]]

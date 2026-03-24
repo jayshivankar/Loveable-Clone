@@ -15,9 +15,12 @@ dependencies = [
     "langsmith[claude-agent-sdk]>=0.7.5",
     "openai>=2.21.0",
     "pathlib>=1.0.1",
-    "prompts>=0.0.1",
     "psycopg2-binary>=2.9.11",
     "pypdf>=6.8.0",
+    "python-dotenv>=1.1.0",
     "sqlalchemy>=2.0.43",
     "uvicorn>=0.35.0",
 ]
+
+[tool.setuptools.packages.find]
+where = ["."]
