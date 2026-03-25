@@ -22,18 +22,10 @@ def workflow():
     def route_coder(state: GraphState) -> str:
         return "reviewer" if state.get("status") == "DONE" else "coder"
 
-    def route_hitl(state: GraphState) -> str:
-        status = state.get("approval_status", "PENDING")
-        if status in ["ACCEPTED", "EDITED"]:
-            return "coder"
-        return "end"
-
     graph = StateGraph(GraphState)
 
     graph.add_node("planner",        planner_agent)
     graph.add_node("architect",      architect_agent)
-    from backend.app.core.langgraph.hitl_gate import hitl_gate
-    graph.add_node("hitl_gate",      hitl_gate)
     graph.add_node("coder",          coder_agent)
     graph.add_node("reviewer",       reviewer_agent)
     graph.add_node("file_collector", file_collector)
@@ -41,21 +33,35 @@ def workflow():
 
     graph.set_entry_point("planner")
     graph.add_edge("planner",        "architect")
-    graph.add_edge("architect",      "hitl_gate")
-    graph.add_conditional_edges("hitl_gate", route_hitl, {"coder": "coder", "end": END})
+    graph.add_edge("architect",      "coder")
     graph.add_conditional_edges("coder", route_coder, {"coder": "coder", "reviewer": "reviewer"})
     graph.add_edge("reviewer",       "file_collector")
     graph.add_edge("file_collector", "downloader")
     graph.add_edge("downloader",     END)
 
-    flow = graph.compile()
+    # We return the uncompiled graph builder
+    return graph
 
-    return flow
+graph_builder = workflow()
+app = graph_builder.compile() # Default uncheckpointed version for some scripts
 
-app = workflow()
-
+async def get_compiled_app():
+    from backend.app.core.config import settings
+    from psycopg_pool import AsyncConnectionPool
+    from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+    
+    db_url = settings.DATABASE_URL
+    if db_url.startswith("postgresql+"):
+        db_url = "postgresql://" + db_url.split("://", 1)[1]
+    
+    pool = AsyncConnectionPool(db_url, kwargs={"autocommit": True})
+    checkpointer = AsyncPostgresSaver(pool)
+    await checkpointer.setup()
+    
+    return graph_builder.compile(checkpointer=checkpointer)
 
 # Entry point
+
 
 
 if __name__ == "__main__":

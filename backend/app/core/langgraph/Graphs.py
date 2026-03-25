@@ -10,7 +10,6 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
 
 from backend.app.core.langgraph.Prompts import (
-    planner_prompt,
     architect_prompt,
     coder_system_prompt,
     reviewer_prompt,
@@ -18,6 +17,11 @@ from backend.app.core.langgraph.Prompts import (
 from backend.app.core.langgraph.Structured_output import Plan, TaskPlan, CoderState, ReviewResult
 from backend.app.core.langgraph.State import GraphState
 from backend.app.core.langgraph.tools import write_file, read_file, get_current_directory, list_files, PROJECT_ROOT, set_retriever, rag_query
+from backend.app.core.langgraph.memory_tools import make_recall_tool
+from backend.app.services.database import database_service
+from langgraph.prebuilt import create_react_agent
+import threading
+import json
 
 load_dotenv()
 
@@ -48,10 +52,54 @@ def _read_all_project_files() -> dict[str, str]:
 
 
 def planner_agent(state: GraphState) -> GraphState:
-    print("\n[PLANNER] Analysing prompt...")
-    plan: Plan = llm.with_structured_output(Plan).invoke(
-        planner_prompt(state["user_prompt"])
+    print("\n[PLANNER] Analyzing prompt with history lookup...")
+    
+    def load_prompt(name: str) -> str:
+        with open(f"backend/app/core/prompts/{name}.md", "r") as f:
+            return f.read()
+
+    short_history = state.get("short_history_summary")
+    if not short_history:
+        recent = database_service.get_recent_episodes(user_id=state["user_id"], limit=2)
+        if not recent:
+            short_history = "No past projects."
+        else:
+            lines = ["Recent projects by this user:"]
+            for row in recent:
+                score = f"{row.quality_score}/10" if row.quality_score else "no score"
+                lines.append(f"  - {row.app_name} ({row.techstack}): {score}")
+            short_history = "\n".join(lines)
+
+    recall_tool = make_recall_tool(
+        database_service=database_service,
+        user_id=state["user_id"],
     )
+
+    react_prompt = load_prompt("planner_react").replace("{short_history}", short_history)
+    
+    agent = create_react_agent(
+        model=llm,
+        tools=[recall_tool],
+        prompt=react_prompt,
+    )
+
+    react_result = agent.invoke({
+        "messages": [HumanMessage(content=state["user_prompt"])]
+    })
+
+    history_context = react_result["messages"][-1].content
+
+    structured_prompt_template = load_prompt("planner_structured")
+    structured_prompt = (
+        f"User request: {state['user_prompt']}\n\n"
+        f"Context from history lookup:\n{history_context}\n\n"
+        f"Now generate the structured project plan."
+    )
+    
+    plan: Plan = llm.with_structured_output(Plan).invoke(
+        structured_prompt_template.replace("{context}", structured_prompt)
+    )
+
     if plan is None:
         raise ValueError("[PLANNER] LLM returned None.")
 
@@ -64,6 +112,8 @@ def planner_agent(state: GraphState) -> GraphState:
 # Node 2 — Architect
 
 
+from langgraph.types import interrupt
+
 def architect_agent(state: GraphState) -> GraphState:
     plan: Plan = state["plan"]
     print(f"\n[ARCHITECT] Creating tasks for {len(plan.files)} files...")
@@ -74,9 +124,25 @@ def architect_agent(state: GraphState) -> GraphState:
     if task_plan is None:
         raise ValueError("[ARCHITECT] LLM returned None.")
 
-    print(f"[ARCHITECT] {len(task_plan.implementation_steps)} tasks:")
+    print(f"[ARCHITECT] {len(task_plan.implementation_steps)} tasks generated.")
 
-    return {"task_plan": task_plan}
+    response = interrupt({
+        "type": "task_plan_review",
+        "task_plan": task_plan.model_dump()
+    })
+
+    approval_status = "PENDING"
+    if response:
+        action = response.get("action")
+        if action == "edit":
+            edited_plan_data = response.get("edited_plan")
+            if edited_plan_data:
+                task_plan = TaskPlan(**edited_plan_data)
+            approval_status = "EDITED"
+        elif action == "approve":
+            approval_status = "APPROVED"
+
+    return {"task_plan": task_plan, "approval_status": approval_status}
 
 
 
@@ -195,6 +261,7 @@ def file_collector(state: GraphState) -> GraphState:
     for path in project_structure:
         print(f"  {path}  ({len(generated_files[path])} chars)")
 
+    threading.Thread(target=_write_episodic_memory, args=(state,)).start()
 
     return {
         "generated_files": generated_files,
@@ -225,5 +292,76 @@ def downloader(state: GraphState) -> GraphState:
     size_kb = zip_path.stat().st_size / 1024
     print(f"[DOWNLOADER] : {zip_path.name}  ({size_kb:.1f} KB)")
     return {"zip_path": str(zip_path), "status": "DONE"}
+
+
+def _embed(text: str) -> list[float]:
+    """Generate a 1536-dim embedding using text-embedding-3-small."""
+    from openai import OpenAI
+    from backend.app.core.config import settings
+    client = OpenAI(api_key=settings.OPENAI_API_KEY)
+    response = client.embeddings.create(
+        model="text-embedding-3-small",
+        input=text[:8000],
+    )
+    return response.data[0].embedding
+
+def _write_episodic_memory(state: GraphState) -> None:
+    try:
+        plan: Plan = state.get("plan")
+        review: ReviewResult = state.get("review_result")
+        user_id: str = state["user_id"]
+        session_id: str = state["thread_id"]
+
+        if not plan:
+            print(f"episodic_write_skipped_no_plan session={session_id}")
+            return
+
+        issues_text = ""
+        if review and review.issues:
+            issues_text = " ".join(
+                f"{i.filepath} {i.description} {i.suggested_fix}"
+                for i in review.issues
+            )
+
+        embedding_input = " ".join(filter(None, [
+            plan.name,
+            plan.techstack,
+            plan.description,
+            review.summary if review else "",
+            issues_text,
+        ]))
+
+        embedding_vector = _embed(embedding_input)
+
+        issues_json = "[]"
+        high_count = medium_count = low_count = 0
+        if review and review.issues:
+            issues_json = json.dumps([i.model_dump() for i in review.issues])
+            high_count = sum(1 for i in review.issues if i.severity == "high")
+            medium_count = sum(1 for i in review.issues if i.severity == "medium")
+            low_count = sum(1 for i in review.issues if i.severity == "low")
+
+        database_service.write_episodic_memory(
+            user_id=user_id,
+            session_id=session_id,
+            app_name=plan.name,
+            techstack=plan.techstack,
+            description=plan.description,
+            file_count=len(state.get("generated_files", {})),
+            feature_count=len(plan.features) if hasattr(plan, 'features') else 0, # Depending on features field
+            retry_count=state.get("retry_count", 0),
+            quality_score=review.quality_score if review else None,
+            passed=review.passed if review else None,
+            summary=review.summary if review else "",
+            issues_json=issues_json,
+            high_count=high_count,
+            medium_count=medium_count,
+            low_count=low_count,
+            embedding=embedding_vector,
+        )
+        print(f"episodic_memory_written session={session_id} score={review.quality_score if review else None}")
+
+    except Exception as e:
+        print(f"episodic_memory_write_failed error={str(e)}")
 
 

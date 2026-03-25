@@ -1,12 +1,18 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { TaskPlanReview, TaskPlan } from "../../components/TaskPlanReview";
 
 export default function WorkspacePage() {
   const [prompt, setPrompt] = useState("");
   const [messages, setMessages] = useState<{role: 'user' | 'assistant', content: string}[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
+  
   const [approvalNeeded, setApprovalNeeded] = useState(false);
+  const [taskPlan, setTaskPlan] = useState<TaskPlan | null>(null);
+  const [currentRunId, setCurrentRunId] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -14,6 +20,97 @@ export default function WorkspacePage() {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages, isGenerating, approvalNeeded]);
+
+  const handleSSEEvent = (data: any, resolveCompletion: () => void) => {
+    setMessages(prev => {
+      const newMessages = [...prev];
+      const lastMsg = newMessages[newMessages.length - 1];
+      if (data.event === "node.started") {
+         lastMsg.content += `\n> 🔄 Started: ${data.node}`;
+      } else if (data.event === "run.completed") {
+         lastMsg.content += `\n\n✅ Generation Complete.`;
+      } else if (data.event === "hitl.required") {
+         lastMsg.content += `\n\n⏸️ Task Plan generated. Awaiting approval...`;
+      } else if (data.event === "hitl.resumed") {
+         lastMsg.content += `\n\n▶️ Resumed execution (${data.action})`;
+      }
+      return newMessages;
+    });
+
+    if (data.event === "hitl.required") {
+       setTaskPlan(data.task_plan);
+       setApprovalNeeded(true);
+       setIsGenerating(false);
+       resolveCompletion();
+    } else if (data.event === "run.completed") {
+       setIsGenerating(false);
+       resolveCompletion();
+    }
+  };
+
+  const readFetchStream = async (response: Response) => {
+    const reader = response.body?.getReader();
+    if (!reader) return;
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    return new Promise<void>(async (resolve) => {
+        try {
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+                
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        const dataStr = line.slice(6);
+                        if (!dataStr) continue;
+                        try {
+                            const data = JSON.parse(dataStr);
+                            handleSSEEvent(data, resolve);
+                        } catch (e) {
+                            console.error('SSE parse error', e);
+                        }
+                    }
+                }
+            }
+        } finally {
+            resolve();
+        }
+    });
+  };
+
+  const handleResume = async (action: 'approve' | 'edit', editedPlan?: TaskPlan) => {
+    if (!currentRunId) return;
+    setIsSubmitting(true);
+    
+    try {
+        const payload: any = { action };
+        if (editedPlan) {
+            payload.edited_plan = editedPlan;
+        }
+        
+        const response = await fetch(`http://localhost:8000/api/v1/runs/${currentRunId}/resume`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+        
+        setIsSubmitting(false);
+        setApprovalNeeded(false);
+        setTaskPlan(null);
+        setIsGenerating(true);
+        
+        await readFetchStream(response);
+    } catch (err) {
+        console.error("Resume error", err);
+        setIsSubmitting(false);
+        setIsGenerating(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -23,39 +120,26 @@ export default function WorkspacePage() {
     setPrompt("");
     setIsGenerating(true);
     setApprovalNeeded(false);
+    setTaskPlan(null);
 
     try {
       // 1. Create Run
-      const createRes = await fetch("http://localhost:8000/api/v1/runs", {
+      const createRes = await fetch("http://localhost:8000/api/v1/runs/", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ session_id: "test", prompt: prompt })
       });
       const runData = await createRes.json();
+      setCurrentRunId(runData.id);
 
       // 2. Stream
-      const eventSource = new EventSource(`http://localhost:8000/api/v1/runs/${runData.id}/stream`);
+      const eventSource = new EventSource(`http://localhost:8000/api/v1/runs/${runData.id}/stream?prompt=${encodeURIComponent(prompt)}`);
       
       setMessages(prev => [...prev, { role: 'assistant', content: "" }]);
 
       eventSource.onmessage = (event) => {
         const data = JSON.parse(event.data);
-        setMessages(prev => {
-          const newMessages = [...prev];
-          const lastMsg = newMessages[newMessages.length - 1];
-          if (data.event === "node.started") {
-             lastMsg.content += `\\n> 🔄 Started: ${data.node}`;
-          } else if (data.event === "run.completed") {
-             lastMsg.content += `\\n\\n✅ Generation Complete.`;
-          }
-          return newMessages;
-        });
-
-        if (data.event === "run.completed") {
-           eventSource.close();
-           setIsGenerating(false);
-           setApprovalNeeded(true); // Mocking interaction
-        }
+        handleSSEEvent(data, () => eventSource.close());
       };
 
       eventSource.onerror = (err) => {
@@ -97,20 +181,14 @@ export default function WorkspacePage() {
           ))
         )}
         
-        {approvalNeeded && (
+        {approvalNeeded && taskPlan && (
           <div className="flex justify-start animate-fade-in-up">
-            <div className="p-6 rounded-2xl max-w-3xl glass-panel !rounded-bl-sm border-yellow-500/50 bg-yellow-500/10 w-full relative overflow-hidden">
-               <div className="absolute top-0 left-0 w-1 h-full bg-yellow-500"></div>
-              <h3 className="text-yellow-400 font-bold mb-2 flex items-center gap-2">
-                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                 Human Approval Required
-              </h3>
-              <p className="text-sm text-yellow-200/80 mb-4">The architect has finished the implementation plan. Please review and accept to continue coding.</p>
-              <div className="flex gap-3">
-                <button onClick={() => setApprovalNeeded(false)} className="px-4 py-2 bg-yellow-500 text-yellow-950 font-bold rounded shadow hover:bg-yellow-400 transition-colors">Accept Plan</button>
-                <button className="px-4 py-2 bg-slate-800 text-white rounded hover:bg-slate-700 transition-colors border border-slate-700">Reject & Edit</button>
-              </div>
-            </div>
+            <TaskPlanReview 
+                taskPlan={taskPlan} 
+                onApprove={() => handleResume('approve')} 
+                onEdit={(plan) => handleResume('edit', plan)} 
+                isSubmitting={isSubmitting} 
+            />
           </div>
         )}
       </div>
@@ -124,10 +202,10 @@ export default function WorkspacePage() {
               placeholder="Describe your Next.js frontend requirements..."
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              disabled={isGenerating}
+              disabled={isGenerating || approvalNeeded}
             />
             <button 
-              disabled={!prompt.trim() || isGenerating}
+              disabled={!prompt.trim() || isGenerating || approvalNeeded}
               className="absolute right-2 px-6 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:hover:bg-blue-600 font-semibold rounded-lg transition-colors flex items-center gap-2 h-10"
             >
               {isGenerating ? "Working..." : "Send"}

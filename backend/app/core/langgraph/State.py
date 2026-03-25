@@ -37,7 +37,5 @@ class GraphState(TypedDict, total=False):
     session_id: str
     user_id: str
     thread_id: str
-    past_review_lessons: str
-    user_project_history: str
     retry_count: int
     error: Optional[str]

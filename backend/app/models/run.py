@@ -8,6 +8,7 @@ class Run(Base):
     id = Column(String, primary_key=True, index=True)
     session_id = Column(String, ForeignKey("sessions.id"), nullable=False, index=True)
     user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    thread_id = Column(String, unique=True, index=True, nullable=True)
     status = Column(String, default="PENDING")
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
     
