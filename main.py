@@ -27,9 +27,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
-
-from Agents.metrics import JOBS_ACTIVE
 from Agents.logger import setup_logging, get_logger
 
 load_dotenv()
@@ -56,6 +53,25 @@ app.add_middleware(
 # ── In-memory job store (since we stream logs from memory for now) ────────────
 
 jobs: dict[str, dict[str, Any]] = {}
+
+from Agents.logger import register_log_callback
+
+def _on_log(event_dict):
+    sid = event_dict.get("session_id")
+    msg = event_dict.get("msg") or event_dict.get("event")
+    node = event_dict.get("node_name", "system")
+    ts = event_dict.get("timestamp")
+    if sid and sid in jobs and msg:
+        if not ts:
+            from datetime import datetime, timezone
+            ts = datetime.now(timezone.utc).isoformat()
+        jobs[sid]["logs"].append({
+            "ts": ts,
+            "msg": msg,
+            "agent": node
+        })
+
+register_log_callback(_on_log)
 
 # ── Startup ────────────────────────────────────────────────────────────────────
 
@@ -99,7 +115,6 @@ async def _shutdown() -> None:
 # ── Workflow runner ────────────────────────────────────────────────────────────
 
 async def _run_workflow_async(job_id: str, prompt: str, fixer_enabled: bool) -> None:
-    JOBS_ACTIVE.inc()
     try:
         from Agents.memory import store_episode
         from Agents.tools import init_project_root
@@ -112,14 +127,6 @@ async def _run_workflow_async(job_id: str, prompt: str, fixer_enabled: bool) -> 
         # Async invoke
         config = {"configurable": {"thread_id": job_id}, "recursion_limit": 200}
         
-        # Polling the state to populate logs streaming from graph (hack for SSE)
-        # Assuming we just run it and node logs take care of structlog
-        jobs[job_id]["logs"].append({
-            "ts": datetime.now(timezone.utc).isoformat(),
-            "msg": f"__STATUS__running__",
-            "agent": "system",
-        })
-
         # Run workflow
         result = await flow.ainvoke(
             {
@@ -181,7 +188,7 @@ async def _run_workflow_async(job_id: str, prompt: str, fixer_enabled: bool) -> 
             "agent": "system",
         })
     finally:
-        JOBS_ACTIVE.dec()
+        pass
 
 
 # ── Schemas ────────────────────────────────────────────────────────────────────
@@ -308,14 +315,6 @@ async def get_metrics_history():
         }
     except Exception as exc:
         return {"error": str(exc)}
-
-@app.get("/metrics")
-async def metrics():
-    # Return prometheus metrics
-    return Response(
-        content=generate_latest(),
-        media_type=CONTENT_TYPE_LATEST
-    )
 
 @app.get("/api/v1/health")
 async def health():

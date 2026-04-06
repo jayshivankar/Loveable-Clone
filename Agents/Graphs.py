@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
-from langgraph.prebuilt import create_react_agent
+from langchain.agents import create_agent
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 import boto3
@@ -46,7 +46,6 @@ from Agents.tools import (
 )
 from Agents.memory import recall_past_mistakes
 from Agents.logger import get_logger
-from Agents.metrics import AGENT_LATENCY
 
 load_dotenv()
 
@@ -116,7 +115,6 @@ def _invoke_agent(agent, messages):
 # Node 1 — Planner  (queries episodic memory first)
 # ─────────────────────────────────────────────────────────────────────────────
 
-@AGENT_LATENCY.labels(node_name="planner").time()
 def planner_agent(state: GraphState) -> GraphState:
     session_id = state.get("chat_session_id", "unknown")
     node_log = log.bind(session_id=session_id, node_name="planner", step_index=1)
@@ -132,7 +130,7 @@ def planner_agent(state: GraphState) -> GraphState:
         else:
             node_log.info("memory_found", msg="Past lessons loaded — incorporating into plan.")
     except Exception as exc:
-        node_log.error("memory_error", error=str(exc))
+        node_log.info("memory_error", error=str(exc))
 
     node_log.info("analysing_prompt", msg="Analysing prompt...")
     
@@ -152,7 +150,6 @@ def planner_agent(state: GraphState) -> GraphState:
 # Node 2 — Architect
 # ─────────────────────────────────────────────────────────────────────────────
 
-@AGENT_LATENCY.labels(node_name="architect").time()
 def architect_agent(state: GraphState) -> GraphState:
     session_id = state.get("chat_session_id", "unknown")
     node_log = log.bind(session_id=session_id, node_name="architect", step_index=2)
@@ -194,16 +191,15 @@ def _code_single_task(task: ImplementationTask, session_id: str) -> None:
         + "Write the COMPLETE file using write_file(path, content)."
     )
 
-    agent = create_react_agent(
+    agent = create_agent(
         model=llm,
         tools=[read_file, write_file, list_files, get_current_directory, rag_query],
-        state_modifier=SystemMessage(content=coder_system_prompt()),
+        system_prompt=coder_system_prompt(),
     )
     _invoke_agent(agent, {"messages": [HumanMessage(content=user_msg)]})
     worker_log.info("coding_done", msg=f"Completed task: {task.filepath}")
 
 
-@AGENT_LATENCY.labels(node_name="coder").time()
 def coder_agent(state: GraphState) -> GraphState:
     session_id = state.get("chat_session_id", "unknown")
     node_log = log.bind(session_id=session_id, node_name="coder", step_index=3)
@@ -239,7 +235,6 @@ def coder_agent(state: GraphState) -> GraphState:
 # Node 4 — Reviewer  (structured analysis only)
 # ─────────────────────────────────────────────────────────────────────────────
 
-@AGENT_LATENCY.labels(node_name="reviewer").time()
 def reviewer_agent(state: GraphState) -> GraphState:
     session_id = state.get("chat_session_id", "unknown")
     node_log = log.bind(session_id=session_id, node_name="reviewer", step_index=4)
@@ -272,7 +267,6 @@ def reviewer_agent(state: GraphState) -> GraphState:
 # Node 5 — Fixer  (applies fixes via file tools — separate from reviewer)
 # ─────────────────────────────────────────────────────────────────────────────
 
-@AGENT_LATENCY.labels(node_name="fixer").time()
 def fixer_agent(state: GraphState) -> GraphState:
     session_id = state.get("chat_session_id", "unknown")
     node_log = log.bind(session_id=session_id, node_name="fixer", step_index=5)
@@ -300,10 +294,10 @@ def fixer_agent(state: GraphState) -> GraphState:
         f"Do not change files that have no listed issues."
     )
 
-    fixer = create_react_agent(
+    fixer = create_agent(
         model=llm,
         tools=[read_file, write_file, list_files, get_current_directory],
-        state_modifier=SystemMessage(content=fixer_system_prompt()),
+        system_prompt=fixer_system_prompt(),
     )
     _invoke_agent(fixer, {"messages": [HumanMessage(content=fix_msg)]})
     
@@ -315,7 +309,6 @@ def fixer_agent(state: GraphState) -> GraphState:
 # Node 6 — File Collector
 # ─────────────────────────────────────────────────────────────────────────────
 
-@AGENT_LATENCY.labels(node_name="file_collector").time()
 def file_collector(state: GraphState) -> GraphState:
     session_id = state.get("chat_session_id", "unknown")
     node_log = log.bind(session_id=session_id, node_name="file_collector", step_index=6)
@@ -338,7 +331,6 @@ def file_collector(state: GraphState) -> GraphState:
 # Node 7 — Downloader (now uses S3/R2)
 # ─────────────────────────────────────────────────────────────────────────────
 
-@AGENT_LATENCY.labels(node_name="downloader").time()
 def downloader(state: GraphState) -> GraphState:
     session_id = state.get("chat_session_id", "unknown")
     node_log = log.bind(session_id=session_id, node_name="downloader", step_index=7)

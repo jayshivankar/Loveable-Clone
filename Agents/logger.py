@@ -14,6 +14,19 @@ import sys
 
 import structlog
 
+_log_callbacks = []
+
+def register_log_callback(cb) -> None:
+    _log_callbacks.append(cb)
+
+def sse_callback_processor(logger, log_method, event_dict):
+    # Call all registered callbacks with a copy so they don't mutate the log
+    for cb in _log_callbacks:
+        try:
+            cb(dict(event_dict))
+        except Exception:
+            pass
+    return event_dict
 
 def setup_logging(log_level: str = "INFO") -> None:
     logging.basicConfig(
@@ -29,6 +42,7 @@ def setup_logging(log_level: str = "INFO") -> None:
             structlog.processors.TimeStamper(fmt="iso"),
             structlog.processors.StackInfoRenderer(),
             structlog.processors.format_exc_info,
+            sse_callback_processor,
             structlog.processors.JSONRenderer(),   # JSON for production
         ],
         wrapper_class=structlog.stdlib.BoundLogger,

@@ -42,7 +42,9 @@ async def get_app(fixer_enabled: bool = True):
 
     # Setup connection pool for checkpointing
     if _pool is None:
-        url = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/codeforge")
+        url = os.getenv("DATABASE_URL")
+        if not url:
+            raise ValueError("[WORKFLOW] DATABASE_URL is not set in the environment.")
         # Replace async driver prefix if needed by psycopg
         url = url.replace("postgresql+psycopg2", "postgresql")
         _pool = AsyncConnectionPool(conninfo=url, max_size=20, kwargs={"autocommit": True})
