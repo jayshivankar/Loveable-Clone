@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    container_name: codeforge_app
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      # Override the DB URL to point to the docker-compose postgres service
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/codeforge
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - codeforge-net
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: codeforge_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: codeforge
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - codeforge-net
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: codeforge_prometheus
+    restart: unless-stopped
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    networks:
+      - codeforge-net
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: codeforge_grafana
+    restart: unless-stopped
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      - prometheus
+    networks:
+      - codeforge-net
+
+networks:
+  codeforge-net:
+    driver: bridge
+
+volumes:
+  postgres_data:

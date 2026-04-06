@@ -1,15 +1,17 @@
 """
 Workflow — LangGraph StateGraph definition.
 
-get_app() is a lazy factory; call it once per process (the result is cached).
+get_app() is an async factory.
 The graph is: planner → architect → coder → reviewer → [fixer?] → file_collector → downloader → END
 """
 
 from __future__ import annotations
+import os
 
 from langgraph.constants import END
 from langgraph.graph import StateGraph
-from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from psycopg_pool import AsyncConnectionPool
 
 from Agents.State import GraphState
 from Agents.Graphs import (
@@ -24,18 +26,30 @@ from Agents.Graphs import (
 
 # ── Cached app singleton ──────────────────────────────────────────────────────
 _app = None
+_pool = None
+_saver = None
 
-
-def get_app(fixer_enabled: bool = True):
+async def get_app(fixer_enabled: bool = True):
     """
     Build and return the compiled LangGraph application.
-    Uses an in-process MemorySaver checkpointer (swap for PostgresSaver in prod).
+    Uses AsyncPostgresSaver for persistent checkponting.
     The result is cached; subsequent calls with different fixer_enabled values
     return the same graph (fixer routing uses runtime state).
     """
-    global _app
+    global _app, _pool, _saver
     if _app is not None:
         return _app
+
+    # Setup connection pool for checkpointing
+    if _pool is None:
+        url = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/codeforge")
+        # Replace async driver prefix if needed by psycopg
+        url = url.replace("postgresql+psycopg2", "postgresql")
+        _pool = AsyncConnectionPool(conninfo=url, max_size=20, kwargs={"autocommit": True})
+        
+    if _saver is None:
+        _saver = AsyncPostgresSaver(_pool)
+        await _saver.setup()
 
     # ── Conditional routing ───────────────────────────────────────────────────
 
@@ -71,43 +85,48 @@ def get_app(fixer_enabled: bool = True):
     graph.add_edge("file_collector", "downloader")
     graph.add_edge("downloader",     END)
 
-    checkpointer = MemorySaver()
-    _app = graph.compile(checkpointer=checkpointer)
+    _app = graph.compile(checkpointer=_saver)
     return _app
 
 
 # ── CLI entry point (kept for direct testing) ─────────────────────────────────
 
 if __name__ == "__main__":
-    import os
+    import asyncio
     from Agents.tools import init_project_root, set_retriever
     from Agents.RAG.rag import build_retriever
     from Agents.memory import init_episodic_memory
     from Agents.Structured_output import ReviewResult
 
-    TEST_JOB = "cli-test"
-    init_project_root(TEST_JOB)
-    init_episodic_memory()
+    async def main():
+        TEST_JOB = "cli-test"
+        init_project_root(TEST_JOB)
+        init_episodic_memory()
 
-    try:
-        set_retriever(build_retriever())
-    except Exception as e:
-        print(f"[RAG] Skipping: {e}")
+        try:
+            set_retriever(build_retriever())
+        except Exception as e:
+            print(f"[RAG] Skipping: {e}")
 
-    flow = get_app()
-    result = flow.invoke(
-        {
-            "user_prompt":    "Build me a FastAPI webapp with Python",
-            "chat_session_id": TEST_JOB,
-            "fixer_enabled":  True,
-        },
-        {"recursion_limit": 200},
-    )
+        flow = await get_app()
+        
+        config = {"configurable": {"thread_id": TEST_JOB}, "recursion_limit": 200}
+        
+        result = await flow.ainvoke(
+            {
+                "user_prompt":    "Build me a FastAPI webapp with Python",
+                "chat_session_id": TEST_JOB,
+                "fixer_enabled":  True,
+            },
+            config,
+        )
 
-    print("\n" + "=" * 50)
-    print("STATUS :", result.get("status"))
-    print("ZIP    :", result.get("zip_path"))
-    print("FILES  :", result.get("project_structure"))
-    review: ReviewResult = result.get("review_result")
-    if review:
-        print(f"REVIEW : {review.quality_score}/10 — passed={review.passed}")
+        print("\n" + "=" * 50)
+        print("STATUS :", result.get("status"))
+        print("ZIP    :", result.get("zip_url"))
+        print("FILES  :", result.get("project_structure"))
+        review: ReviewResult = result.get("review_result")
+        if review:
+            print(f"REVIEW : {review.quality_score}/10 — passed={review.passed}")
+
+    asyncio.run(main())

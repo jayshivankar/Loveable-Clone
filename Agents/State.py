@@ -24,7 +24,7 @@ class GraphState(TypedDict, total=False):
     project_structure: list   # sorted list of relative paths
 
     # ── Downloader ───────────────────────────────────────────────────────────
-    zip_path: str
+    zip_url: str
 
     # ── Reviewer ─────────────────────────────────────────────────────────────
     review_result: ReviewResult   # score, issues, passed flag

@@ -2,7 +2,7 @@
 Episodic Memory — PostgreSQL + pgvector
 
 After every successful generation run:
-  store_episode() saves the prompt, tech stack, reviewer issues, and quality score.
+  store_episode() saves each reviewer issue into the episodic_memory table.
 
 Before planning:
   recall_past_mistakes() embeds the current prompt and does cosine similarity
@@ -13,12 +13,10 @@ Fails gracefully if PostgreSQL / pgvector is unavailable.
 
 from __future__ import annotations
 
-import json
 import os
 from typing import Optional
 
 import psycopg2
-from psycopg2.extras import Json
 from langchain_core.tools import tool
 from langchain_openai import OpenAIEmbeddings
 
@@ -67,14 +65,16 @@ def init_episodic_memory() -> bool:
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS episodic_memory (
-                    id              SERIAL PRIMARY KEY,
-                    session_id      TEXT,
-                    prompt_summary  TEXT,
-                    prompt_embedding vector(1536),
-                    techstack       TEXT,
-                    issues_json     JSONB,
-                    quality_score   INTEGER,
-                    created_at      TIMESTAMP DEFAULT NOW()
+                    session_id     TEXT,
+                    app_name       TEXT,
+                    user_prompt    TEXT,
+                    filepath       TEXT,
+                    severity       TEXT,
+                    description    TEXT,
+                    suggested_fix  TEXT,
+                    quality_score  INTEGER,
+                    embedding      vector(1536),
+                    created_at     TIMESTAMP DEFAULT NOW()
                 );
                 """
             )
@@ -84,7 +84,7 @@ def init_episodic_memory() -> bool:
                 """
                 CREATE INDEX IF NOT EXISTS episodic_embedding_idx
                 ON episodic_memory
-                USING ivfflat (prompt_embedding vector_cosine_ops)
+                USING ivfflat (embedding vector_cosine_ops)
                 WITH (lists = 10);
                 """
             )
@@ -104,47 +104,44 @@ def init_episodic_memory() -> bool:
 def store_episode(
     session_id: str,
     prompt: str,
-    techstack: str,
+    app_name: str,
     review_result,          # ReviewResult pydantic model
 ) -> None:
     """Persist a completed generation run into episodic memory."""
-    if not _memory_available:
+    if not _memory_available or not review_result.issues:
         return
     try:
         conn = _get_connection()
-        embedding = _get_embeddings().embed_query(prompt)
+        embeddings_api = _get_embeddings()
 
-        issues = [
-            {
-                "filepath":    issue.filepath,
-                "severity":    issue.severity.value,
-                "description": issue.description,
-                "fix":         issue.suggested_fix,
-            }
-            for issue in review_result.issues
-        ]
+        # Embed each issue description (as per requirements)
+        descriptions = [issue.description for issue in review_result.issues]
+        embeddings = embeddings_api.embed_documents(descriptions)
 
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO episodic_memory
-                    (session_id, prompt_summary, prompt_embedding,
-                     techstack, issues_json, quality_score)
-                VALUES (%s, %s, %s::vector, %s, %s, %s)
-                """,
-                (
-                    session_id,
-                    prompt[:500],
-                    str(embedding),
-                    techstack,
-                    Json(issues),
-                    review_result.quality_score,
-                ),
-            )
+            for i, issue in enumerate(review_result.issues):
+                cur.execute(
+                    """
+                    INSERT INTO episodic_memory
+                        (session_id, app_name, user_prompt, filepath, severity, description, suggested_fix, quality_score, embedding)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::vector)
+                    """,
+                    (
+                        session_id,
+                        app_name,
+                        prompt,
+                        issue.filepath,
+                        issue.severity.value,
+                        issue.description,
+                        issue.suggested_fix,
+                        review_result.quality_score,
+                        str(embeddings[i]),
+                    ),
+                )
         print(
             f"[MEMORY] ✓ Episode stored (session={session_id[:8]}…, "
             f"score={review_result.quality_score}/10, "
-            f"issues={len(issues)})"
+            f"issues={len(review_result.issues)})"
         )
     except Exception as exc:
         print(f"[MEMORY] ✗ Could not store episode: {exc}")
@@ -176,13 +173,15 @@ def recall_past_mistakes(current_prompt: str) -> str:
             cur.execute(
                 """
                 SELECT
-                    prompt_summary,
-                    techstack,
-                    issues_json,
-                    quality_score,
-                    1 - (prompt_embedding <=> %s::vector) AS similarity
+                    app_name,
+                    user_prompt,
+                    filepath,
+                    severity,
+                    description,
+                    suggested_fix,
+                    1 - (embedding <=> %s::vector) AS similarity
                 FROM episodic_memory
-                WHERE 1 - (prompt_embedding <=> %s::vector) > 0.55
+                WHERE 1 - (embedding <=> %s::vector) > 0.55
                 ORDER BY similarity DESC
                 LIMIT 5
                 """,
@@ -195,32 +194,20 @@ def recall_past_mistakes(current_prompt: str) -> str:
 
         lines: list[str] = [
             "╔══════════════════════════════════════════════════╗",
-            "║        LESSONS FROM PAST BUILDS (MEMORY)        ║",
+            "║        LESSONS FROM PAST BUILDS (MEMORY)         ║",
             "╚══════════════════════════════════════════════════╝",
             "",
         ]
 
-        for prompt_summary, techstack, issues_json, quality_score, similarity in rows:
+        for app_name, user_prompt, filepath, severity, description, suggested_fix, similarity in rows:
             lines.append(
-                f"▶ Past build  similarity={similarity:.2f}  "
-                f"score={quality_score}/10  stack={techstack}"
+                f"▶ Past context  similarity={similarity:.2f}  "
+                f"app={app_name}"
             )
-            lines.append(f"  Prompt: {prompt_summary[:120]}…")
-
-            high   = [i for i in issues_json if i["severity"] == "high"]
-            medium = [i for i in issues_json if i["severity"] == "medium"]
-
-            if high:
-                lines.append("  ✗ HIGH-severity issues to avoid:")
-                for iss in high:
-                    lines.append(f"      • {iss['filepath']}: {iss['description']}")
-                    lines.append(f"          Fix → {iss['fix']}")
-
-            if medium:
-                lines.append("  ⚠ MEDIUM-severity issues to watch:")
-                for iss in medium[:3]:
-                    lines.append(f"      • {iss['filepath']}: {iss['description']}")
-
+            lines.append(f"  Prompt: {user_prompt[:120]}…")
+            lines.append(f"  ✗ {severity.upper()}-severity issue:")
+            lines.append(f"      • {filepath}: {description}")
+            lines.append(f"          Fix → {suggested_fix}")
             lines.append("")
 
         lines.append("Apply these lessons during planning and architecture decisions.")
@@ -240,13 +227,19 @@ def get_recent_episodes(limit: int = 10) -> list[dict]:
         return []
     try:
         conn = _get_connection()
+        # Aggregate the per-issue rows by session_id to match the UI format
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, session_id, prompt_summary, techstack,
-                       quality_score, created_at,
-                       jsonb_array_length(issues_json) AS issue_count
+                SELECT
+                    session_id,
+                    MAX(user_prompt) as prompt_summary,
+                    MAX(app_name) as app_name,
+                    MAX(quality_score) as quality_score,
+                    MAX(created_at) as created_at,
+                    COUNT(filepath) AS issue_count
                 FROM episodic_memory
+                GROUP BY session_id
                 ORDER BY created_at DESC
                 LIMIT %s
                 """,
@@ -255,15 +248,16 @@ def get_recent_episodes(limit: int = 10) -> list[dict]:
             rows = cur.fetchall()
         return [
             {
-                "id":            r[0],
-                "session_id":    r[1],
-                "prompt":        r[2],
-                "techstack":     r[3],
-                "quality_score": r[4],
-                "created_at":    r[5].isoformat() if r[5] else None,
-                "issue_count":   r[6],
+                "id":            str(r[0]), # there's no PK id in the aggregated result, use session_id
+                "session_id":    r[0],
+                "prompt":        r[1],
+                "techstack":     r[2], # using app_name instead of techstack here
+                "quality_score": r[3],
+                "created_at":    r[4].isoformat() if r[4] else None,
+                "issue_count":   r[5],
             }
             for r in rows
         ]
     except Exception:
         return []
+

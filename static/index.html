@@ -1,0 +1,910 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CodeForge AI — Build Apps with AI</title>
+  <meta name="description" content="Describe your app in plain English. CodeForge AI's multi-agent pipeline generates a complete, production-ready codebase in minutes." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    /* ── Reset & base ─────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:          #07070f;
+      --bg2:         #0d0d1a;
+      --bg3:         #12121f;
+      --border:      rgba(139,92,246,.18);
+      --border2:     rgba(139,92,246,.35);
+      --purple:      #8b5cf6;
+      --violet:      #7c3aed;
+      --indigo:      #6366f1;
+      --pink:        #ec4899;
+      --cyan:        #06b6d4;
+      --green:       #10b981;
+      --yellow:      #f59e0b;
+      --red:         #ef4444;
+      --text:        #e2e8f0;
+      --muted:       #64748b;
+      --glass:       rgba(139,92,246,.06);
+      --glass2:      rgba(139,92,246,.12);
+      --glow:        0 0 40px rgba(139,92,246,.25);
+      --glow-sm:     0 0 16px rgba(139,92,246,.2);
+      --radius:      14px;
+      --radius-sm:   8px;
+      --font:        'Inter', sans-serif;
+      --mono:        'JetBrains Mono', monospace;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── Animations ───────────────────────────────────────────────────────── */
+    @keyframes fadeUp   { from { opacity:0; transform:translateY(24px); } to { opacity:1; transform:none; } }
+    @keyframes fadeIn   { from { opacity:0; } to { opacity:1; } }
+    @keyframes pulse    { 0%,100%{ opacity:1; } 50%{ opacity:.4; } }
+    @keyframes spin     { to { transform:rotate(360deg); } }
+    @keyframes shimmer  { from { background-position:-200% 0; } to { background-position:200% 0; } }
+    @keyframes borderGlow {
+      0%,100%{ border-color: rgba(139,92,246,.3); box-shadow: 0 0 0 0 rgba(139,92,246,0); }
+      50%    { border-color: rgba(139,92,246,.7); box-shadow: 0 0 20px 2px rgba(139,92,246,.2); }
+    }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+    @keyframes slideIn { from{opacity:0;transform:translateX(-10px)} to{opacity:1;transform:none} }
+    @keyframes popIn   { from{opacity:0;transform:scale(.9)} to{opacity:1;transform:scale(1)} }
+
+    /* ── Grid background ──────────────────────────────────────────────────── */
+    body::before {
+      content: '';
+      position: fixed; inset: 0; z-index: 0; pointer-events: none;
+      background-image:
+        linear-gradient(rgba(139,92,246,.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(139,92,246,.04) 1px, transparent 1px);
+      background-size: 40px 40px;
+    }
+
+    /* ── Radial glow blobs ────────────────────────────────────────────────── */
+    .blob { position:fixed; border-radius:50%; filter:blur(90px); pointer-events:none; z-index:0; }
+    .blob-1 { width:600px;height:600px; top:-200px;left:-150px; background:radial-gradient(circle,rgba(139,92,246,.12),transparent 70%); }
+    .blob-2 { width:500px;height:500px; bottom:-150px;right:-100px; background:radial-gradient(circle,rgba(99,102,241,.1),transparent 70%); }
+
+    /* ── Layout ───────────────────────────────────────────────────────────── */
+    .container { max-width:1200px; margin:0 auto; padding:0 24px; position:relative; z-index:1; }
+
+    /* ── Nav ──────────────────────────────────────────────────────────────── */
+    nav {
+      position:sticky; top:0; z-index:100;
+      border-bottom:1px solid var(--border);
+      background:rgba(7,7,15,.8);
+      backdrop-filter:blur(20px);
+    }
+    .nav-inner {
+      display:flex; align-items:center; justify-content:space-between;
+      height:60px; max-width:1200px; margin:0 auto; padding:0 24px;
+    }
+    .logo { display:flex; align-items:center; gap:10px; text-decoration:none; }
+    .logo-icon {
+      width:32px;height:32px; border-radius:8px;
+      background:linear-gradient(135deg,var(--purple),var(--indigo));
+      display:flex; align-items:center; justify-content:center;
+      font-size:16px; box-shadow:var(--glow-sm);
+    }
+    .logo-text { font-size:17px; font-weight:700; color:var(--text); }
+    .logo-text span { background:linear-gradient(90deg,var(--purple),var(--indigo)); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; }
+    .nav-badge {
+      font-size:11px; font-weight:600; padding:3px 10px; border-radius:99px;
+      background:linear-gradient(90deg,rgba(139,92,246,.2),rgba(99,102,241,.2));
+      border:1px solid var(--border2); color:var(--purple);
+    }
+
+    /* ── Hero ─────────────────────────────────────────────────────────────── */
+    .hero {
+      text-align:center; padding:72px 0 48px;
+      animation:fadeUp .7s ease both;
+    }
+    .hero-eyebrow {
+      display:inline-flex; align-items:center; gap:8px;
+      font-size:12px; font-weight:600; letter-spacing:.08em; text-transform:uppercase;
+      color:var(--purple); background:rgba(139,92,246,.1); border:1px solid var(--border2);
+      padding:5px 14px; border-radius:99px; margin-bottom:24px;
+    }
+    .hero-eyebrow::before { content:''; width:6px;height:6px;border-radius:50%;background:var(--purple);animation:pulse 1.5s infinite; }
+    h1 {
+      font-size:clamp(40px,6vw,72px); font-weight:900; line-height:1.08;
+      letter-spacing:-.03em; margin-bottom:20px;
+    }
+    .gradient-text {
+      background:linear-gradient(135deg,#fff 0%,var(--purple) 50%,var(--indigo) 100%);
+      -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent;
+    }
+    .hero-sub { font-size:18px; color:var(--muted); max-width:520px; margin:0 auto 40px; line-height:1.6; }
+
+    /* ── Prompt card ──────────────────────────────────────────────────────── */
+    .prompt-card {
+      background:var(--glass); border:1px solid var(--border);
+      border-radius:var(--radius); padding:20px;
+      box-shadow:var(--glow);
+      animation:fadeUp .8s .1s ease both;
+      transition:border-color .3s;
+    }
+    .prompt-card:focus-within {
+      border-color:rgba(139,92,246,.5);
+      box-shadow:var(--glow), 0 0 0 1px rgba(139,92,246,.15);
+    }
+
+    #promptInput {
+      width:100%; background:transparent; border:none; outline:none;
+      color:var(--text); font-family:var(--font); font-size:16px; line-height:1.7;
+      resize:none; min-height:110px;
+      &::placeholder { color:var(--muted); }
+    }
+
+    .prompt-footer {
+      display:flex; align-items:center; justify-content:space-between;
+      margin-top:14px; gap:12px; flex-wrap:wrap;
+    }
+    .char-count { font-size:12px; color:var(--muted); }
+
+    .btn-generate {
+      display:inline-flex; align-items:center; gap:8px;
+      padding:11px 26px; border-radius:10px; border:none; cursor:pointer;
+      font-family:var(--font); font-size:15px; font-weight:600;
+      background:linear-gradient(135deg,var(--purple),var(--indigo));
+      color:#fff; box-shadow:0 4px 20px rgba(139,92,246,.4);
+      transition:all .2s;
+    }
+    .btn-generate:hover:not(:disabled) { transform:translateY(-1px); box-shadow:0 6px 28px rgba(139,92,246,.5); }
+    .btn-generate:active:not(:disabled){ transform:translateY(0); }
+    .btn-generate:disabled { opacity:.6; cursor:not-allowed; }
+    .btn-generate .spinner { width:16px;height:16px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite;display:none; }
+    .btn-generate.loading .spinner  { display:block; }
+    .btn-generate.loading .btn-icon { display:none; }
+
+    /* ── Example chips ────────────────────────────────────────────────────── */
+    .examples {
+      display:flex; flex-wrap:wrap; gap:8px; justify-content:center;
+      margin-top:20px; animation:fadeUp .9s .2s ease both;
+    }
+    .chip {
+      font-size:13px; padding:6px 14px; border-radius:99px; cursor:pointer;
+      border:1px solid var(--border); color:var(--muted);
+      background:var(--glass); transition:all .2s;
+    }
+    .chip:hover { border-color:var(--border2); color:var(--text); background:var(--glass2); transform:translateY(-1px); }
+
+    /* ── Workspace ────────────────────────────────────────────────────────── */
+    #workspace { display:none; margin-top:40px; animation:fadeIn .5s ease; }
+    .workspace-grid { display:grid; grid-template-columns:1fr 380px; gap:20px; align-items:start; }
+    @media(max-width:900px){ .workspace-grid{ grid-template-columns:1fr; } }
+
+    /* ── Glass panels ─────────────────────────────────────────────────────── */
+    .panel {
+      background:var(--glass); border:1px solid var(--border);
+      border-radius:var(--radius); overflow:hidden;
+    }
+    .panel-header {
+      display:flex; align-items:center; gap:10px;
+      padding:14px 18px; border-bottom:1px solid var(--border);
+      font-size:13px; font-weight:600; letter-spacing:.02em;
+    }
+    .panel-header .ph-icon { font-size:16px; }
+    .panel-body { padding:18px; }
+
+    /* ── Agent pipeline stepper ───────────────────────────────────────────── */
+    .pipeline {
+      display:flex; align-items:center; gap:0;
+      padding:18px; overflow-x:auto;
+    }
+    .step {
+      display:flex; flex-direction:column; align-items:center; gap:6px;
+      flex:1; min-width:70px; position:relative;
+    }
+    .step:not(:last-child)::after {
+      content:''; position:absolute; top:18px; left:calc(50% + 18px);
+      width:calc(100% - 36px); height:2px;
+      background:linear-gradient(90deg,var(--border2),var(--border));
+    }
+    .step.done::after { background:linear-gradient(90deg,var(--green),rgba(16,185,129,.3)); }
+    .step.active::after { background:linear-gradient(90deg,var(--purple),var(--border)); }
+
+    .step-dot {
+      width:36px; height:36px; border-radius:50%;
+      border:2px solid var(--border); background:var(--bg2);
+      display:flex; align-items:center; justify-content:center;
+      font-size:16px; position:relative; z-index:1; transition:all .4s;
+    }
+    .step.done .step-dot   { border-color:var(--green); background:rgba(16,185,129,.15); }
+    .step.active .step-dot {
+      border-color:var(--purple); background:rgba(139,92,246,.15);
+      box-shadow:0 0 16px rgba(139,92,246,.4);
+      animation:pulse 1.2s infinite;
+    }
+    .step-label { font-size:10px; font-weight:600; text-align:center; color:var(--muted); letter-spacing:.05em; text-transform:uppercase; transition:color .3s; }
+    .step.done .step-label   { color:var(--green); }
+    .step.active .step-label { color:var(--purple); }
+
+    /* ── Log feed ─────────────────────────────────────────────────────────── */
+    #logFeed {
+      height:320px; overflow-y:auto; padding:12px;
+      display:flex; flex-direction:column; gap:4px;
+      font-family:var(--mono); font-size:12px;
+      scrollbar-width:thin; scrollbar-color:var(--border) transparent;
+    }
+    .log-line {
+      display:grid; grid-template-columns:auto auto 1fr;
+      gap:8px; align-items:baseline;
+      padding:4px 6px; border-radius:var(--radius-sm);
+      animation:slideIn .2s ease;
+      transition:background .2s;
+    }
+    .log-line:hover { background:rgba(255,255,255,.03); }
+    .log-ts   { color:var(--muted); font-size:10px; white-space:nowrap; }
+    .log-tag  { font-size:10px; font-weight:700; padding:1px 6px; border-radius:4px; letter-spacing:.04em; white-space:nowrap; }
+    .log-msg  { color:var(--text); line-height:1.5; word-break:break-word; }
+
+    .tag-planner   { background:rgba(139,92,246,.2); color:#b4a4f8; }
+    .tag-architect { background:rgba(99,102,241,.2);  color:#a5b4fc; }
+    .tag-coder     { background:rgba(6,182,212,.2);   color:#67e8f9; }
+    .tag-reviewer  { background:rgba(245,158,11,.2);  color:#fcd34d; }
+    .tag-fixer     { background:rgba(16,185,129,.2);  color:#6ee7b7; }
+    .tag-collector { background:rgba(236,72,153,.2);  color:#f9a8d4; }
+    .tag-downloader{ background:rgba(139,92,246,.2);  color:#c4b5fd; }
+    .tag-memory    { background:rgba(251,191,36,.2);  color:#fde68a; }
+    .tag-rag       { background:rgba(20,184,166,.2);  color:#5eead4; }
+    .tag-system    { background:rgba(100,116,139,.2); color:#94a3b8; }
+
+    /* ── Right column ─────────────────────────────────────────────────────── */
+    .right-col { display:flex; flex-direction:column; gap:16px; }
+
+    /* ── Memory panel ─────────────────────────────────────────────────────── */
+    #memoryPanel { display:none; }
+    .memory-badge {
+      display:inline-flex; align-items:center; gap:6px;
+      font-size:11px; font-weight:600; padding:3px 10px; border-radius:99px;
+      background:rgba(251,191,36,.1); border:1px solid rgba(251,191,36,.25); color:#fcd34d;
+    }
+    .memory-body { font-size:12px; line-height:1.7; color:var(--muted); white-space:pre-wrap; word-break:break-word; max-height:200px; overflow-y:auto; }
+    .memory-body .mem-highlight { color:#fde68a; }
+    .memory-body .mem-error { color:var(--red); }
+    .memory-body .mem-good  { color:var(--green); }
+
+    /* ── Review score ─────────────────────────────────────────────────────── */
+    #reviewPanel { display:none; }
+    .score-ring {
+      width:80px;height:80px; border-radius:50%;
+      display:flex;align-items:center;justify-content:center;
+      font-size:24px;font-weight:900; position:relative;
+      background:conic-gradient(var(--color,var(--green)) calc(var(--pct,70)*1%),rgba(255,255,255,.05) 0);
+    }
+    .score-ring::before {
+      content:''; position:absolute; inset:6px; border-radius:50%;
+      background:var(--bg2);
+    }
+    .score-num { position:relative; z-index:1; }
+    .review-summary { font-size:13px; color:var(--muted); line-height:1.6; margin-top:12px; }
+    .issue-list { display:flex; flex-direction:column; gap:6px; margin-top:12px; }
+    .issue-item {
+      display:flex; gap:8px; font-size:12px; padding:8px 10px;
+      border-radius:var(--radius-sm); border-left:3px solid;
+    }
+    .issue-high   { border-color:var(--red);    background:rgba(239,68,68,.06); }
+    .issue-medium { border-color:var(--yellow);  background:rgba(245,158,11,.06); }
+    .issue-low    { border-color:var(--muted);   background:rgba(100,116,139,.06); }
+    .issue-path { font-family:var(--mono); color:var(--purple); }
+
+    /* ── File tree ────────────────────────────────────────────────────────── */
+    #filePanel { display:none; }
+    .file-tree { display:flex; flex-direction:column; gap:3px; max-height:220px; overflow-y:auto; }
+    .file-item {
+      display:flex; align-items:center; gap:8px;
+      font-family:var(--mono); font-size:12px; color:var(--muted);
+      padding:5px 8px; border-radius:var(--radius-sm);
+      transition:background .15s; cursor:default;
+    }
+    .file-item:hover { background:rgba(255,255,255,.04); color:var(--text); }
+    .file-icon { font-size:13px; flex-shrink:0; }
+
+    /* ── Download button ──────────────────────────────────────────────────── */
+    #downloadPanel { display:none; }
+    .btn-download {
+      width:100%; padding:14px; border-radius:var(--radius); border:none; cursor:pointer;
+      font-family:var(--font); font-size:15px; font-weight:700;
+      background:linear-gradient(135deg,var(--green),#059669);
+      color:#fff; box-shadow:0 4px 20px rgba(16,185,129,.35);
+      display:flex; align-items:center; justify-content:center; gap:10px;
+      transition:all .25s; animation:popIn .4s ease;
+    }
+    .btn-download:hover { transform:translateY(-2px); box-shadow:0 8px 30px rgba(16,185,129,.45); }
+    .btn-download:active{ transform:translateY(0); }
+
+    /* ── Error banner ─────────────────────────────────────────────────────── */
+    #errorBanner {
+      display:none; margin-top:16px; padding:14px 18px;
+      background:rgba(239,68,68,.08); border:1px solid rgba(239,68,68,.25);
+      border-radius:var(--radius); color:#fca5a5; font-size:14px;
+    }
+
+    /* ── Footer ───────────────────────────────────────────────────────────── */
+    footer {
+      text-align:center; padding:40px 24px 32px;
+      font-size:13px; color:var(--muted); position:relative; z-index:1;
+    }
+
+    /* ── Scrollbar ─────────────────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width:6px; height:6px; }
+    ::-webkit-scrollbar-track { background:transparent; }
+    ::-webkit-scrollbar-thumb { background:var(--border2); border-radius:99px; }
+  </style>
+</head>
+<body>
+
+<div class="blob blob-1"></div>
+<div class="blob blob-2"></div>
+
+<!-- ── Nav ─────────────────────────────────────────────────────────────────── -->
+<nav>
+  <div class="nav-inner">
+    <a class="logo" href="/">
+      <div class="logo-icon">⚡</div>
+      <span class="logo-text">Code<span>Forge</span> AI</span>
+    </a>
+    <div class="nav-badge">Multi-Agent Pipeline</div>
+  </div>
+</nav>
+
+<!-- ── Main ────────────────────────────────────────────────────────────────── -->
+<main>
+  <div class="container">
+
+    <!-- Hero -->
+    <section class="hero">
+      <div class="hero-eyebrow">Powered by LangGraph + GPT-4o</div>
+      <h1><span class="gradient-text">Describe your app.<br>We build it.</span></h1>
+      <p class="hero-sub">
+        Our AI pipeline — Planner → Architect → Coder → Reviewer — generates
+        a complete, production-ready codebase from a single sentence.
+      </p>
+
+      <!-- Prompt card -->
+      <div class="prompt-card" id="promptCard">
+        <textarea
+          id="promptInput"
+          placeholder="e.g. Build me a FastAPI REST API with SQLite for a task manager with user auth and JWT tokens…"
+          maxlength="2000"
+          rows="4"
+        ></textarea>
+        <div class="prompt-footer">
+          <span class="char-count"><span id="charCount">0</span> / 2000</span>
+          <div style="display:flex;align-items:center;gap:10px;">
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);cursor:pointer;">
+              <input type="checkbox" id="fixerToggle" checked style="accent-color:var(--purple);width:14px;height:14px;" />
+              Run Fixer
+            </label>
+            <button class="btn-generate" id="generateBtn" onclick="startGeneration()">
+              <span class="btn-icon">✦</span>
+              <div class="spinner"></div>
+              Generate
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Example chips -->
+      <div class="examples">
+        <div class="chip" onclick="setPrompt(this)">FastAPI + SQLite task manager with JWT auth</div>
+        <div class="chip" onclick="setPrompt(this)">React todo app with local storage and dark mode</div>
+        <div class="chip" onclick="setPrompt(this)">Flask REST API for a blog with CRUD endpoints</div>
+        <div class="chip" onclick="setPrompt(this)">Python CLI expense tracker with CSV export</div>
+        <div class="chip" onclick="setPrompt(this)">HTML/CSS/JS weather dashboard with OpenWeatherMap API</div>
+      </div>
+    </section>
+
+    <!-- Error banner -->
+    <div id="errorBanner"></div>
+
+    <!-- Workspace -->
+    <div id="workspace">
+      <div class="workspace-grid">
+
+        <!-- Left: pipeline + logs -->
+        <div style="display:flex;flex-direction:column;gap:16px;">
+
+          <!-- Agent pipeline -->
+          <div class="panel">
+            <div class="panel-header">
+              <span class="ph-icon">🔄</span>
+              Agent Pipeline
+              <span id="pipelineStatus" style="margin-left:auto;font-size:12px;color:var(--muted);">Running…</span>
+            </div>
+            <div class="pipeline" id="pipeline">
+              <div class="step waiting" id="step-planner">
+                <div class="step-dot">🧠</div>
+                <span class="step-label">Planner</span>
+              </div>
+              <div class="step waiting" id="step-architect">
+                <div class="step-dot">🏗️</div>
+                <span class="step-label">Architect</span>
+              </div>
+              <div class="step waiting" id="step-coder">
+                <div class="step-dot">👨‍💻</div>
+                <span class="step-label">Coder</span>
+              </div>
+              <div class="step waiting" id="step-reviewer">
+                <div class="step-dot">🔍</div>
+                <span class="step-label">Reviewer</span>
+              </div>
+              <div class="step waiting" id="step-fixer">
+                <div class="step-dot">🔧</div>
+                <span class="step-label">Fixer</span>
+              </div>
+              <div class="step waiting" id="step-collector">
+                <div class="step-dot">📦</div>
+                <span class="step-label">Collect</span>
+              </div>
+              <div class="step waiting" id="step-downloader">
+                <div class="step-dot">⬇️</div>
+                <span class="step-label">Package</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Live logs -->
+          <div class="panel">
+            <div class="panel-header">
+              <span class="ph-icon">📋</span>
+              Live Agent Logs
+              <span id="logCount" style="margin-left:auto;font-size:11px;color:var(--muted);font-weight:400;">0 lines</span>
+            </div>
+            <div id="logFeed"></div>
+          </div>
+        </div>
+
+        <!-- Right column -->
+        <div class="right-col">
+
+          <!-- Episodic Memory Panel -->
+          <div class="panel" id="memoryPanel">
+            <div class="panel-header">
+              <span class="ph-icon">🧠</span>
+              Episodic Memory
+              <div class="memory-badge" id="memoryBadge" style="margin-left:auto;">Loaded</div>
+            </div>
+            <div class="panel-body">
+              <p style="font-size:11px;color:var(--muted);margin-bottom:8px;">
+                Lessons recalled from similar past builds — applied to this plan.
+              </p>
+              <div class="memory-body" id="memoryBody"></div>
+            </div>
+          </div>
+
+          <!-- Review Score -->
+          <div class="panel" id="reviewPanel">
+            <div class="panel-header"><span class="ph-icon">⭐</span>Code Review</div>
+            <div class="panel-body">
+              <div style="display:flex;align-items:center;gap:18px;">
+                <div class="score-ring" id="scoreRing">
+                  <span class="score-num" id="scoreNum">—</span>
+                </div>
+                <div>
+                  <div id="scoreLabel" style="font-size:14px;font-weight:700;"></div>
+                  <div style="font-size:12px;color:var(--muted);margin-top:2px;" id="scoreIssues"></div>
+                </div>
+              </div>
+              <div class="review-summary" id="reviewSummary"></div>
+              <div class="issue-list" id="issueList"></div>
+            </div>
+          </div>
+
+          <!-- File Tree -->
+          <div class="panel" id="filePanel">
+            <div class="panel-header">
+              <span class="ph-icon">📁</span>
+              Generated Files
+              <span id="fileCount" style="margin-left:auto;font-size:11px;color:var(--muted);font-weight:400;"></span>
+            </div>
+            <div class="panel-body" style="padding:10px 14px;">
+              <div class="file-tree" id="fileTree"></div>
+            </div>
+          </div>
+
+          <!-- Download -->
+          <div id="downloadPanel">
+            <button class="btn-download" id="downloadBtn">
+              <span>⬇</span>
+              <span id="downloadLabel">Download Project ZIP</span>
+            </button>
+            <p style="text-align:center;font-size:12px;color:var(--muted);margin-top:8px;" id="appNameLabel"></p>
+          </div>
+
+          <!-- Live Metrics Chart Panel -->
+          <div class="panel" id="metricsPanel" style="display:none;margin-top:16px;">
+            <div class="panel-header">
+              <span class="ph-icon">📊</span>
+              Recent Performance
+            </div>
+            <div class="panel-body" style="padding:10px;">
+              <div style="position:relative; height:150px; width:100%;">
+                <canvas id="metricsChart"></canvas>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- Spacer -->
+    <div style="height:60px;"></div>
+  </div>
+</main>
+
+<footer>
+  Built with LangGraph · RAG · Episodic Memory · OpenAI &nbsp;|&nbsp;
+  <a href="/docs" target="_blank" style="color:var(--purple);text-decoration:none;">API Docs</a>
+</footer>
+
+<script>
+// ── State ────────────────────────────────────────────────────────────────────
+let currentJobId = null;
+let sse = null;
+let logCount = 0;
+
+const STEPS = ['planner','architect','coder','reviewer','fixer','collector','downloader'];
+
+// ── Utils ────────────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+
+function formatTime(isoStr) {
+  const d = new Date(isoStr);
+  return d.toLocaleTimeString('en-US', { hour12:false, hour:'2-digit', minute:'2-digit', second:'2-digit' });
+}
+
+function fileIcon(path) {
+  const ext = path.split('.').pop().toLowerCase();
+  const icons = { py:'🐍', js:'🟨', ts:'💙', html:'🌐', css:'🎨', json:'📋', md:'📝',
+                  txt:'📄', env:'🔧', yaml:'⚙️', yml:'⚙️', toml:'⚙️', sql:'🗄️', sh:'💻' };
+  return icons[ext] || '📄';
+}
+
+// ── Character counter ────────────────────────────────────────────────────────
+$('promptInput').addEventListener('input', e => {
+  $('charCount').textContent = e.target.value.length;
+});
+
+// ── Example chips ─────────────────────────────────────────────────────────────
+function setPrompt(chip) {
+  $('promptInput').value = chip.textContent;
+  $('charCount').textContent = chip.textContent.length;
+  $('promptInput').focus();
+}
+
+// ── Generation ────────────────────────────────────────────────────────────────
+async function startGeneration() {
+  const prompt = $('promptInput').value.trim();
+  if (prompt.length < 10) {
+    showError('Please enter at least 10 characters describing your app.');
+    return;
+  }
+
+  hideError();
+  resetWorkspace();
+
+  const btn = $('generateBtn');
+  btn.disabled = true;
+  btn.classList.add('loading');
+
+  try {
+    const res = await fetch('/api/v1/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, fixer_enabled: $('fixerToggle').checked }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || 'Server error');
+    }
+    const data = await res.json();
+    currentJobId = data.job_id;
+
+    $('workspace').style.display = 'block';
+    $('workspace').scrollIntoView({ behavior:'smooth', block:'start' });
+
+    startSSE(currentJobId);
+  } catch(e) {
+    showError(e.message);
+    btn.disabled = false;
+    btn.classList.remove('loading');
+  }
+}
+
+// ── SSE streaming ─────────────────────────────────────────────────────────────
+function startSSE(jobId) {
+  if (sse) sse.close();
+  sse = new EventSource(`/api/v1/stream/${jobId}`);
+
+  sse.onmessage = e => {
+    const entry = JSON.parse(e.data);
+    const msg = entry.msg;
+
+    if (msg.startsWith('__STATUS__')) {
+      const status = msg.replace('__STATUS__','').replace('__','');
+      sse.close();
+      onJobComplete(jobId, status);
+      return;
+    }
+
+    appendLog(entry);
+    updatePipelineFromLog(msg, entry.agent);
+  };
+
+  sse.onerror = () => {
+    sse.close();
+    // Fallback: poll status
+    setTimeout(() => pollStatus(jobId), 1000);
+  };
+}
+
+// ── Log rendering ─────────────────────────────────────────────────────────────
+function appendLog(entry) {
+  const feed = $('logFeed');
+  const line = document.createElement('div');
+  line.className = 'log-line';
+  const tag = entry.agent || 'system';
+  line.innerHTML = `
+    <span class="log-ts">${formatTime(entry.ts)}</span>
+    <span class="log-tag tag-${tag}">${tag.toUpperCase()}</span>
+    <span class="log-msg">${escHtml(entry.msg)}</span>
+  `;
+  feed.appendChild(line);
+  feed.scrollTop = feed.scrollHeight;
+  logCount++;
+  $('logCount').textContent = `${logCount} lines`;
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Pipeline stepper ──────────────────────────────────────────────────────────
+const AGENT_TO_STEP = {
+  planner:'planner', architect:'architect', coder:'coder',
+  reviewer:'reviewer', fixer:'fixer', collector:'collector', downloader:'downloader'
+};
+let currentStep = null;
+
+function updatePipelineFromLog(msg, agent) {
+  const step = AGENT_TO_STEP[agent];
+  if (!step || step === currentStep) return;
+
+  // Mark previous as done
+  if (currentStep) {
+    const prev = $(`step-${currentStep}`);
+    if (prev) { prev.className = 'step done'; }
+  }
+
+  const el = $(`step-${step}`);
+  if (el) { el.className = 'step active'; }
+  currentStep = step;
+}
+
+// ── Job complete ──────────────────────────────────────────────────────────────
+async function onJobComplete(jobId, status) {
+  // Mark remaining steps done
+  STEPS.forEach(s => {
+    const el = $(`step-${s}`);
+    if (el && el.className !== 'step done') {
+      el.className = status === 'done' ? 'step done' : 'step waiting';
+    }
+  });
+
+  $('generateBtn').disabled = false;
+  $('generateBtn').classList.remove('loading');
+  $('pipelineStatus').textContent = status === 'done' ? '✓ Complete' : '✗ Error';
+  $('pipelineStatus').style.color = status === 'done' ? 'var(--green)' : 'var(--red)';
+
+  if (status === 'error') {
+    showError('Generation failed. Check the logs above for details.');
+    return;
+  }
+
+  // Fetch final status
+  const res = await fetch(`/api/v1/status/${jobId}`);
+  const data = await res.json();
+
+  showMemory(data.memory_context);
+  showReview(data.review);
+  showFileTree(data.project_structure);
+  showDownload(data.zip_url, data.plan_name);
+  loadMetricsChart();
+}
+
+async function pollStatus(jobId) {
+  try {
+    const res = await fetch(`/api/v1/status/${jobId}`);
+    const data = await res.json();
+    if (data.status === 'running') {
+      setTimeout(() => pollStatus(jobId), 1500);
+    } else {
+      onJobComplete(jobId, data.status);
+    }
+  } catch(_) { setTimeout(() => pollStatus(jobId), 2000); }
+}
+
+// ── Memory panel ──────────────────────────────────────────────────────────────
+function showMemory(ctx) {
+  if (!ctx || ctx.includes('No similar') || ctx.includes('not available')) return;
+  $('memoryPanel').style.display = 'block';
+  const body = $('memoryBody');
+  // Colorize key parts
+  let html = escHtml(ctx)
+    .replace(/✗ HIGH[^\n]*/g, m => `<span class="mem-error">${m}</span>`)
+    .replace(/⚠ MEDIUM[^\n]*/g, m => `<span class="mem-highlight">${m}</span>`)
+    .replace(/similarity=[\d.]+/g, m => `<span class="mem-good">${m}</span>`);
+  body.innerHTML = html;
+}
+
+// ── Review panel ──────────────────────────────────────────────────────────────
+function showReview(review) {
+  if (!review) return;
+  $('reviewPanel').style.display = 'block';
+
+  const score = review.score || 0;
+  const pct = score * 10;
+  const color = score >= 8 ? 'var(--green)' : score >= 6 ? 'var(--yellow)' : 'var(--red)';
+  const ring = $('scoreRing');
+  ring.style.setProperty('--pct', pct);
+  ring.style.setProperty('--color', color);
+  $('scoreNum').textContent = score;
+  $('scoreNum').style.color = color;
+  $('scoreLabel').textContent = review.passed ? '✓ Review Passed' : '⚠ Review Failed';
+  $('scoreLabel').style.color = review.passed ? 'var(--green)' : 'var(--yellow)';
+  $('scoreIssues').textContent = `${review.issues} issue${review.issues !== 1 ? 's' : ''} found`;
+  $('reviewSummary').textContent = review.summary || '';
+
+  const issueList = $('issueList');
+  (review.issue_list || []).slice(0, 5).forEach(iss => {
+    const div = document.createElement('div');
+    div.className = `issue-item issue-${iss.severity}`;
+    div.innerHTML = `<span class="issue-path">${escHtml(iss.filepath)}</span><span>${escHtml(iss.description)}</span>`;
+    issueList.appendChild(div);
+  });
+}
+
+// ── File tree panel ───────────────────────────────────────────────────────────
+function showFileTree(files) {
+  if (!files || !files.length) return;
+  $('filePanel').style.display = 'block';
+  $('fileCount').textContent = `${files.length} files`;
+
+  const tree = $('fileTree');
+  files.forEach(path => {
+    const div = document.createElement('div');
+    div.className = 'file-item';
+    div.innerHTML = `<span class="file-icon">${fileIcon(path)}</span><span>${escHtml(path)}</span>`;
+    tree.appendChild(div);
+  });
+}
+
+// ── Download panel ────────────────────────────────────────────────────────────
+function showDownload(zipUrl, planName) {
+  $('downloadPanel').style.display = 'block';
+  $('downloadBtn').onclick = () => window.location = zipUrl;
+  if (planName) {
+    $('appNameLabel').textContent = `Project: ${planName}`;
+    $('downloadLabel').textContent = `Download ${planName}.zip`;
+  }
+}
+
+// ── Reset ─────────────────────────────────────────────────────────────────────
+function resetWorkspace() {
+  logCount = 0;
+  currentStep = null;
+  $('logFeed').innerHTML = '';
+  $('logCount').textContent = '0 lines';
+  $('pipelineStatus').textContent = 'Running…';
+  $('pipelineStatus').style.color = 'var(--muted)';
+  STEPS.forEach(s => { const el = $(`step-${s}`); if(el) el.className='step waiting'; });
+  $('memoryPanel').style.display  = 'none';
+  $('reviewPanel').style.display  = 'none';
+  $('filePanel').style.display    = 'none';
+  $('downloadPanel').style.display= 'none';
+  $('memoryBody').innerHTML = '';
+  $('reviewSummary').textContent = '';
+  $('issueList').innerHTML = '';
+  $('fileTree').innerHTML  = '';
+  $('scoreNum').textContent = '—';
+  $('appNameLabel').textContent = '';
+}
+
+// ── Error helpers ─────────────────────────────────────────────────────────────
+function showError(msg) {
+  const b = $('errorBanner');
+  b.textContent = '⚠ ' + msg;
+  b.style.display = 'block';
+}
+function hideError() { $('errorBanner').style.display = 'none'; }
+
+// ── Allow Enter+Ctrl/Cmd to generate ─────────────────────────────────────────
+$('promptInput').addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') startGeneration();
+});
+
+// ── Metrics Chart ─────────────────────────────────────────────────────────────
+let chartInst = null;
+async function loadMetricsChart() {
+  try {
+    const res = await fetch('/api/v1/metrics/history');
+    const data = await res.json();
+    if (!data.labels || data.labels.length === 0) return;
+    
+    $('metricsPanel').style.display = 'block';
+    
+    if (chartInst) {
+      chartInst.data.labels = data.labels;
+      chartInst.data.datasets[0].data = data.scores;
+      chartInst.data.datasets[1].data = data.issues;
+      chartInst.update();
+    } else {
+      const ctx = document.getElementById('metricsChart').getContext('2d');
+      const ChartExt = window.Chart;
+      ChartExt.defaults.color = '#e2e8f0';
+      ChartExt.defaults.font.family = "'Inter', sans-serif";
+      
+      chartInst = new ChartExt(ctx, {
+        type: 'line',
+        data: {
+          labels: data.labels,
+          datasets: [
+            {
+              label: 'Review Score',
+              data: data.scores,
+              borderColor: '#10b981',
+              backgroundColor: 'rgba(16,185,129,0.1)',
+              yAxisID: 'y',
+              fill: true,
+              tension: 0.3
+            },
+            {
+              label: 'Issues',
+              data: data.issues,
+              borderColor: '#ef4444',
+              borderDash: [5, 5],
+              yAxisID: 'y1',
+              tension: 0.3
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            y: { type: 'linear', display: true, position: 'left', min: 0, max: 10 },
+            y1: { type: 'linear', display: true, position: 'right', grid: { drawOnChartArea: false } },
+            x: { display: false }
+          },
+          plugins: {
+            legend: { position: 'bottom', labels: { boxWidth: 12, font: {size: 10} } }
+          }
+        }
+      });
+    }
+  } catch (err) {
+    console.error("Failed to load metrics history", err);
+  }
+}
+
+// Initial load
+loadMetricsChart();
+</script>
+</body>
+</html>
