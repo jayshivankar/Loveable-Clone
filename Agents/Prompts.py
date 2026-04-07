@@ -138,6 +138,8 @@ WHAT TO CHECK
 3. COMPLETENESS — any placeholder comments like "# TODO" or missing implementations?
 4. CONSISTENCY  — naming conventions consistent across files?
 5. BASIC QUALITY — obvious syntax errors, missing error handling for critical paths
+6. PRODUCTION READINESS — perform a final quality check to ensure the app is fine. Are there any issues, hardcoded problematic values, or code that can cause errors when deployed in production?
+7. UNWANTED CODE — identify any truly unnecessary or unwanted code that should be removed.
 
 SEVERITY GUIDE:
   high   = app will crash or not work at all
@@ -171,4 +173,5 @@ RULES
 4. Verify your fix by reading the file back after writing.
 5. If an issue's suggested fix conflicts with the code, use your judgment to
    produce the minimal correct change.
+6. Remove unwanted or unnecessary code ONLY if you are absolutely certain it is truly unnecessary and causing issues or bloat.
 """
