@@ -6,13 +6,19 @@ def planner_prompt(user_prompt: str, memory_context: str = "") -> str:
     if memory_context and "No similar" not in memory_context and "not available" not in memory_context:
         memory_section = f"""
 ═══════════════════════════════════════════════════
-EPISODIC MEMORY — LESSONS FROM PAST BUILDS
+EPISODIC MEMORY — recall_past_mistakes() RESULTS
 ═══════════════════════════════════════════════════
+The tool recall_past_mistakes() was called with the user’s prompt and
+returned these semantically similar past issues:
+
 {memory_context}
 
-⚠  Apply these lessons NOW during planning.
-   Avoid every listed high-severity mistake.
-   Address every medium-severity watch item in your file plan.
+⚠  MANDATORY — you MUST act on these results RIGHT NOW:
+   HIGH-severity issues   → include an explicit mitigation in that file’s purpose.
+   MEDIUM-severity issues → add a watch-item note to the relevant file’s purpose.
+   LOW-severity issues    → keep in mind; address if the file is directly affected.
+   Do NOT produce a generic plan. Every [HIGH] item from memory must appear
+   as a concrete guard in the purpose field of the matching file.
 """
 
     return f"""

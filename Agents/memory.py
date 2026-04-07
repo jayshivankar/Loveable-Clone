@@ -114,12 +114,15 @@ def store_episode(
         conn = _get_connection()
         embeddings_api = _get_embeddings()
 
-        # Embed each issue description (as per requirements)
-        descriptions = [issue.description for issue in review_result.issues]
-        embeddings = embeddings_api.embed_documents(descriptions)
+        # Embed the user_prompt once — the embedding represents the project
+        # intent, enabling semantic search to find similar past projects.
+        # The issue details (description, suggested_fix, etc.) are stored
+        # in their own columns and are NOT embedded.
+        prompt_embedding = embeddings_api.embed_query(prompt)
+        prompt_embedding_str = str(prompt_embedding)
 
         with conn.cursor() as cur:
-            for i, issue in enumerate(review_result.issues):
+            for issue in review_result.issues:
                 cur.execute(
                     """
                     INSERT INTO episodic_memory
@@ -132,10 +135,10 @@ def store_episode(
                         prompt,
                         issue.filepath,
                         issue.severity.value,
-                        issue.description,
+                        issue.description,   # stored as plain text, NOT embedded
                         issue.suggested_fix,
                         review_result.quality_score,
-                        str(embeddings[i]),
+                        prompt_embedding_str,  # embedding of the user_prompt
                     ),
                 )
         print(
@@ -174,23 +177,28 @@ def recall_past_mistakes(current_prompt: str) -> str:
                 """
                 SELECT
                     app_name,
-                    user_prompt,
                     filepath,
                     severity,
                     description,
                     suggested_fix,
+                    quality_score,
                     1 - (embedding <=> %s::vector) AS similarity
                 FROM episodic_memory
-                WHERE 1 - (embedding <=> %s::vector) > 0.55
                 ORDER BY similarity DESC
-                LIMIT 5
+                LIMIT 4
                 """,
-                (vec_str, vec_str),
+                (vec_str,),
             )
             rows = cur.fetchall()
 
         if not rows:
             return "[MEMORY] No similar past runs found — starting fresh."
+
+        # Group by severity so the Planner sees the most critical issues first
+        from collections import defaultdict
+        by_severity: dict[str, list] = defaultdict(list)
+        for row in rows:
+            by_severity[row[2]].append(row)  # row[2] = severity
 
         lines: list[str] = [
             "╔══════════════════════════════════════════════════╗",
@@ -199,16 +207,16 @@ def recall_past_mistakes(current_prompt: str) -> str:
             "",
         ]
 
-        for app_name, user_prompt, filepath, severity, description, suggested_fix, similarity in rows:
-            lines.append(
-                f"▶ Past context  similarity={similarity:.2f}  "
-                f"app={app_name}"
-            )
-            lines.append(f"  Prompt: {user_prompt[:120]}…")
-            lines.append(f"  ✗ {severity.upper()}-severity issue:")
-            lines.append(f"      • {filepath}: {description}")
-            lines.append(f"          Fix → {suggested_fix}")
-            lines.append("")
+        for severity_level in ("high", "medium", "low"):
+            if severity_level not in by_severity:
+                continue
+            for app_name, filepath, severity, description, suggested_fix, quality_score, similarity in by_severity[severity_level]:
+                lines.append(
+                    f"[{severity.upper()}] {filepath}: {description}"
+                )
+                lines.append(f"  Fix: {suggested_fix}")
+                lines.append(f"  (from app: {app_name}, score: {quality_score}/10)")
+                lines.append("")
 
         lines.append("Apply these lessons during planning and architecture decisions.")
         return "\n".join(lines)

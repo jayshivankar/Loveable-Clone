@@ -44,7 +44,7 @@ from Agents.tools import (
     read_file,
     write_file,
 )
-from Agents.memory import recall_past_mistakes
+from Agents.memory import recall_past_mistakes, store_episode
 from Agents.logger import get_logger
 
 load_dotenv()
@@ -259,6 +259,19 @@ def reviewer_agent(state: GraphState) -> GraphState:
         raise ValueError("[REVIEWER] LLM returned None.")
 
     node_log.info("review_done", score=review_result.quality_score, passed=review_result.passed, issues_count=len(review_result.issues))
+
+    # ── Persist to episodic memory ──────────────────────────────────────────
+    plan: Plan = state.get("plan")
+    app_name = plan.name if plan else "unknown"
+    try:
+        store_episode(
+            session_id=session_id,
+            prompt=state.get("user_prompt", ""),
+            app_name=app_name,
+            review_result=review_result,
+        )
+    except Exception as exc:
+        node_log.warning("memory_store_error", error=str(exc))
 
     return {"review_result": review_result}
 
