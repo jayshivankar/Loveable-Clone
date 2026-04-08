@@ -6,6 +6,7 @@ The graph is: planner → architect → coder → reviewer → [fixer?] → file
 """
 
 from __future__ import annotations
+import asyncio
 import os
 
 from langgraph.constants import END
@@ -28,67 +29,100 @@ from Agents.Graphs import (
 _app = None
 _pool = None
 _saver = None
+_lock = asyncio.Lock()  # Prevents race conditions when pool is reset
 
 async def get_app(fixer_enabled: bool = True):
     """
     Build and return the compiled LangGraph application.
-    Uses AsyncPostgresSaver for persistent checkponting.
-    The result is cached; subsequent calls with different fixer_enabled values
-    return the same graph (fixer routing uses runtime state).
+    Uses AsyncPostgresSaver for persistent checkpointing.
+    Thread-safe: uses an asyncio.Lock to prevent races when the pool resets.
     """
     global _app, _pool, _saver
+    # Fast path — no lock needed if app is already ready
     if _app is not None:
         return _app
 
-    # Setup connection pool for checkpointing
-    if _pool is None:
-        url = os.getenv("DATABASE_URL")
-        if not url:
-            raise ValueError("[WORKFLOW] DATABASE_URL is not set in the environment.")
-        # Replace async driver prefix if needed by psycopg
-        url = url.replace("postgresql+psycopg2", "postgresql")
-        _pool = AsyncConnectionPool(conninfo=url, max_size=20, kwargs={"autocommit": True})
-        
-    if _saver is None:
-        _saver = AsyncPostgresSaver(_pool)
-        await _saver.setup()
+    async with _lock:
+        # Re-check under the lock (another coroutine may have built it while we waited)
+        if _app is not None:
+            return _app
 
-    # ── Conditional routing ───────────────────────────────────────────────────
+        # ── Setup connection pool for checkpointing ───────────────────────────
+        if _pool is None:
+            url = os.getenv("DATABASE_URL")
+            if not url:
+                raise ValueError("[WORKFLOW] DATABASE_URL is not set in the environment.")
+            # Replace async driver prefix if needed by psycopg
+            url = url.replace("postgresql+psycopg2", "postgresql")
 
-    def route_after_reviewer(state: GraphState) -> str:
-        review = state.get("review_result")
-        enabled = state.get("fixer_enabled", True)
-        if enabled and review and not review.passed and review.issues:
-            return "fixer"
-        return "file_collector"
+            def _on_reconnect_failed(pool):
+                """
+                Called when the pool gives up trying to reconnect.
+                Reset the singleton so the next request creates a fresh pool.
+                This handles intermittent ECS Service Connect DNS failures.
+                """
+                global _pool, _saver, _app
+                import logging
+                logging.getLogger("codeforge.workflow").error(
+                    "[WORKFLOW] Connection pool reconnect failed — resetting singletons for next request."
+                )
+                _pool = None
+                _saver = None
+                _app = None
 
-    # ── Build graph ───────────────────────────────────────────────────────────
+            _pool = AsyncConnectionPool(
+                conninfo=url,
+                max_size=20,
+                min_size=1,
+                open=False,               # Don't pre-open at construction time
+                reconnect_timeout=30,     # Give up reconnecting after 30s (not 300s default)
+                reconnect_failed=_on_reconnect_failed,
+                max_waiting=50,
+                kwargs={"autocommit": True},
+            )
+            await _pool.open(wait=True, timeout=30)  # Explicitly open with timeout
 
-    graph = StateGraph(GraphState)
+        if _saver is None:
+            _saver = AsyncPostgresSaver(_pool)
+            await _saver.setup()
 
-    graph.add_node("planner",        planner_agent)
-    graph.add_node("architect",      architect_agent)
-    graph.add_node("coder",          coder_agent)
-    graph.add_node("reviewer",       reviewer_agent)
-    graph.add_node("fixer",          fixer_agent)
-    graph.add_node("file_collector", file_collector)
-    graph.add_node("downloader",     downloader)
+        # ── Conditional routing ───────────────────────────────────────────────
 
-    graph.set_entry_point("planner")
-    graph.add_edge("planner",   "architect")
-    graph.add_edge("architect", "coder")
-    graph.add_edge("coder",     "reviewer")
-    graph.add_conditional_edges(
-        "reviewer",
-        route_after_reviewer,
-        {"fixer": "fixer", "file_collector": "file_collector"},
-    )
-    graph.add_edge("fixer",          "file_collector")
-    graph.add_edge("file_collector", "downloader")
-    graph.add_edge("downloader",     END)
+        def route_after_reviewer(state: GraphState) -> str:
+            review = state.get("review_result")
+            enabled = state.get("fixer_enabled", True)
+            if enabled and review and not review.passed and review.issues:
+                return "fixer"
+            return "file_collector"
 
-    _app = graph.compile(checkpointer=_saver)
-    return _app
+        # ── Build graph ───────────────────────────────────────────────────────
+
+        graph = StateGraph(GraphState)
+
+        graph.add_node("planner",        planner_agent)
+        graph.add_node("architect",      architect_agent)
+        graph.add_node("coder",          coder_agent)
+        graph.add_node("reviewer",       reviewer_agent)
+        graph.add_node("fixer",          fixer_agent)
+        graph.add_node("file_collector", file_collector)
+        graph.add_node("downloader",     downloader)
+
+        graph.set_entry_point("planner")
+        graph.add_edge("planner",   "architect")
+        graph.add_edge("architect", "coder")
+        graph.add_edge("coder",     "reviewer")
+        graph.add_conditional_edges(
+            "reviewer",
+            route_after_reviewer,
+            {"fixer": "fixer", "file_collector": "file_collector"},
+        )
+        graph.add_edge("fixer",          "file_collector")
+        graph.add_edge("file_collector", "downloader")
+        graph.add_edge("downloader",     END)
+
+        _app = graph.compile(checkpointer=_saver)
+        return _app
+
 
 
 # ── CLI entry point (kept for direct testing) ─────────────────────────────────

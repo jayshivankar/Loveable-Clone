@@ -1,0 +1,18 @@
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
+.git/
+.idea/
+.jbeval/
+copilot/
+generated_project/
+grafana/
+prometheus.yml
+data/
+postgres_data/
+Agents/RAG/vectorstore/
+Agents/RAG/Data/
+# Ignore all dotfiles implicitly except maybe .env in some cases (but .env shouldn't be copied in Prod either)
+.env

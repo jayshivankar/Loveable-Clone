@@ -8,7 +8,6 @@ Endpoints:
   GET  /api/v1/download/local/{job_id} — fallback local download (if S3 not configured)
   GET  /api/v1/memory            — recent episodic memory episodes
   GET  /api/v1/metrics/history   — chart data for frontend
-  GET  /metrics                  — prometheus metrics
   GET  /                         — serves the frontend SPA
 """
 

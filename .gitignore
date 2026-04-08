@@ -144,3 +144,8 @@ Agents/RAG/Data/vector_store/
 project_temp/
 cli-test/
 *.zip
+
+# Secrets and Copilot configs
+secrets.yml
+copilot/
+.jbeval/
